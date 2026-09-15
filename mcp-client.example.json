@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ue-blueprint-bridge": {
+      "command": "python",
+      "args": [
+        "-u",
+        "<path-to-this-repository>/server/bridge.py",
+        "--project",
+        "<path-to-your-unreal-project>/YourProject.uproject"
+      ]
+    }
+  }
+}

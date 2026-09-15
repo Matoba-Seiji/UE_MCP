@@ -1,0 +1,22 @@
+# Unreal Engine generated files
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+build/
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local MCP configuration and temporary files
+mcp-client.json
+*.tmp
+*.log
+
+# Local test data and rollback snapshots
+artifacts/
+tests/
