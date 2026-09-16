@@ -167,6 +167,22 @@ Persona 私有源码，不能直接当作其他引擎版本的兼容实现。反
 `Saved/UEBlueprintBridge/install-backups` 目录中创建安装备份。安装完成后，
 在工程中启用 `UEBlueprintBridge`，再重新启动编辑器。
 
+### 使用预编译发布包
+
+Windows 用户可以从 GitHub Release 下载与 UE4.24 匹配的
+`UEBlueprintBridge-0.5.0-UE4.24-Win64.zip`。解压后，在 PowerShell 中执行：
+
+```powershell
+./Install-UEBlueprintBridge.ps1 -Project C:\path\to\YourProject.uproject
+```
+
+发布包已经包含编译好的 Editor DLL，不需要安装 Python、Visual Studio 或
+UnrealBuildTool。安装脚本会为目标工程创建安装备份，并为 DLL 生成带 SHA-256
+后缀的唯一文件名；目标 Unreal Editor 必须关闭，安装完成后重新启动编辑器。
+
+预编译包只适用于对应的 Unreal Engine、平台和编辑器 ABI。当前发布包只针对
+UE4.24 Win64；其他引擎版本或平台请继续使用源码构建流程。
+
 ## 配置 MCP 客户端
 
 复制 `mcp-client.example.json`，将其中的两个占位路径替换为本机实际路径：
