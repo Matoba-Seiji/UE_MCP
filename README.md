@@ -36,6 +36,46 @@
 姿势、分层混合和部分 IK 节点。具体参数以 `server/bridge.py` 中注册的 MCP
 工具定义为准。
 
+## 动画 TA 扩展（第一批）
+
+以下接口已加入源码。具体参数和边界见 [TA 操作契约](docs/ta-operations.md)。
+
+| 工具 | 本批范围 |
+| --- | --- |
+| `ue_inspect_animation_asset` | Sequence、Montage、BlendSpace、SkeletalMesh、PhysicsAsset 的分页反射属性和写入 revision；额外返回序列轨迹概况、网格 LOD 数量和 Morph 路径 |
+| `ue_read_animation_track` | 按骨骼名读取原始局部位置、四元数旋转、缩放键；各通道独立 total，共用 offset/limit |
+| `ue_sample_animation_bone` | 按秒采样一根真实骨骼及祖先链，返回局部/组件空间姿势和区间 Root Motion；不支持 Additive、虚拟骨骼、网格重定向或 AnimBP 求值 |
+| `ue_edit_animation_asset` | 替换已有原始轨迹、配置 Root Motion 开关、更新已有 float 曲线键、移动普通 Notify、添加 Montage Section、设置下一 Section |
+| `ue_save_animation_asset` | revision 校验后备份并保存整个 Sequence/Montage，包括当前用户修改；无蓝图编译门禁 |
+| `ue_read_animation_pose` | PIE SkeletalMeshComponent 的最近一次求值骨骼世界/组件空间变换、活动 Montage、可选状态机当前状态 |
+| `ue_batch_animation_read` | 串行只读批量检查，最多 20 项，禁止写入及递归批次 |
+
+轨迹替换使用 `operation=replace_raw_track`，`name` 为已有骨骼轨迹名。
+`track_json` 包含 `positions`、`rotations`、`scales` 三个数组，每个通道必须有
+1 个键或序列帧数个键。位置单位厘米，旋转为归一化 xyzw 四元数，缩放无单位。
+存在 SourceRawAnimationData 的序列会被拒绝，以免覆盖动画修改器工作流。
+所有编辑先在内存执行；保存前应重新读取，建议先在资产副本上验证。
+普通 Notify 移动后会排序，旧 index 不可继续复用；Notify State 暂不支持移动。
+采样缺失轨迹使用 Skeleton 参考姿势，不等于最终渲染姿势。
+
+### TA 专用扩展
+
+新增 `ue_inspect_ta_asset`、`ue_edit_ta_asset`、`ue_save_ta_asset` 和
+`ue_batch_ta_write`。详细参数见 [TA 操作契约](docs/ta-operations.md)。
+
+- BlendSpace：替换轴和采样点，在临时副本预检后重建采样网格。
+- Montage：创建/替换命名 Slot 的组合段，防止截断现有 Section/Notify。
+- 曲线与 Notify：float 曲线创建/替换/删除及切线参数，普通 Notify 和 Notify State 增删移动。
+- Mesh：LOD 数据摘要和屏幕尺寸设置，Morph 稀疏差值分页读取、替换和缩放。
+- Physics：刚体和约束检查、质量覆盖、角度限制设置。
+- Control Rig：层级初始变换、节点增删、引脚默认值和连接编辑。
+- Sequencer：现有绑定下动画 Section 创建、范围/速率编辑、删除。
+- 批量写入：最多 20 项，遇错即停，不自动保存，不保证原子性。
+
+此版本增加了 UE4.24 ControlRig 插件依赖。BlendSpace 重建依赖本机引擎
+Persona 私有源码，不能直接当作其他引擎版本的兼容实现。反射嵌套数组仍有
+100 项限制，不是完整无损资产导出。
+
 ## 环境要求
 
 - Unreal Engine 4.24.x，并准备一个 Unreal 工程。

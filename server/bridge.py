@@ -198,7 +198,75 @@ def validate_args(name, args):
     return args
 
 
+TA_OPERATIONS = {
+    'remove_morph_target': ('name', 'acknowledge_references'),
+    'replace_montage_sections': ('sections',),
+    'set_notify_object': ('index', 'property', 'object_path'),
+    'rig_reparent_element': ('kind', 'name', 'parent', 'acknowledge_references'),
+    'rig_remove_element': ('kind', 'name', 'acknowledge_references'),
+    'set_notify_scalar': ('index', 'property', 'value'),
+    'replace_transform_curve': ('name', 'keys'),
+    'remove_transform_curve': ('name',),
+    'bake_transform_curves': ('acknowledge_raw_track_changes',),
+    'regenerate_lods': ('count', 'regenerate_imported'),
+    'remove_lod': ('lod',),
+    'sequencer_bind_actor': ('object_path',),
+    'sequencer_add_transform': ('binding', 'start_frame', 'end_frame'),
+    'replace_body_primitives': ('index', 'shapes'),
+    'rig_add_element': ('name', 'kind', 'parent', 'translation', 'rotation_degrees', 'scale'),
+    'sequencer_replace_float_keys': ('section_path', 'channel', 'keys'),
+    'replace_blendspace': ('axes', 'samples'),
+    'replace_montage_slot': ('slot', 'segments'),
+    'replace_float_curve': ('name', 'keys'),
+    'remove_float_curve': ('name',),
+    'add_notify': ('time', 'duration', 'track'),
+    'edit_notify': ('index', 'time', 'duration', 'track'),
+    'remove_notify': ('index',),
+    'set_lod_screen_size': ('lod', 'value'),
+    'scale_morph_deltas': ('lod', 'name', 'value'),
+    'replace_morph_deltas': ('lod', 'name', 'deltas'),
+    'set_constraint_limits': ('index', 'swing1', 'swing2', 'twist'),
+    'set_body_mass': ('index', 'mass_kg'),
+    'rig_add_node': ('node', 'function', 'x', 'y'),
+    'rig_set_initial_transform': ('name', 'type', 'translation', 'rotation_degrees', 'scale'),
+    'rig_remove_node': ('node',),
+    'rig_set_pin': ('node', 'pin', 'value'),
+    'rig_connect': ('node', 'pin', 'target_node', 'target_pin'),
+    'rig_disconnect': ('node', 'pin', 'target_node', 'target_pin'),
+    'sequencer_add_animation': ('binding', 'animation', 'start_frame', 'end_frame'),
+    'sequencer_edit_section': ('section_path', 'start_frame', 'end_frame', 'play_rate'),
+    'sequencer_remove_section': ('section_path',),
+}
+
+
+def validate_ta_write(args):
+    validate_args('ue_edit_ta_asset', args)
+    if not args['asset_path'].startswith('/Game/') or not args['expected_revision']:
+        raise ValueError('A /Game/ asset and nonempty inspection revision are required')
+    if len(args['config_json'].encode('utf-8')) > 4 * 1024 * 1024:
+        raise ValueError('config_json exceeds 4 MiB')
+    def invalid_constant(value):
+        raise ValueError('Non-finite JSON number: ' + value)
+    config = json.loads(args['config_json'], parse_constant=invalid_constant)
+    if not isinstance(config, dict):
+        raise ValueError('config_json must be an object')
+    required = TA_OPERATIONS[args['operation']]
+    if any(key not in config for key in required):
+        raise ValueError('Operation requires: ' + ', '.join(required))
+    return args
+
+
 RUNTIME_SCHEMAS = {
+    'ue_evaluate_ta_asset': ({'mode': {'type': 'string', 'enum': ['editor_actors', 'blend_weights', 'float_curve', 'sequencer_float']}, 'asset_path': {'type': 'string'}, 'config_json': {'type': 'string'}, 'time': {'type': 'number'}, 'name': {'type': 'string'}, 'section_path': {'type': 'string'}, 'channel': {'type': 'integer', 'minimum': 0}}, ['mode'], 'Read-only evaluation: editor_actors lists up to 500 editor-world actors; blend_weights uses asset_path/config_json position xyz; float_curve uses sequence/name/time seconds; sequencer_float uses LevelSequence/section_path/channel/time in tick-resolution frames. Does not run an AnimBP or render a pose.'),
+    'ue_create_ta_asset': ({'destination': {'type': 'string'}, 'kind': {'type': 'string', 'enum': ['blendspace', 'blendspace1d', 'level_sequence', 'control_rig']}, 'skeleton_path': {'type': 'string'}, 'source_asset': {'type': 'string'}, 'expected_revision': {'type': 'string'}}, ['destination'], 'Create a TA asset in memory at an unused /Game/Folder/Name. Choose kind (BlendSpace requires skeleton_path), OR source_asset with its current TA revision to duplicate. No save, no overwrite.'),
+    'ue_inspect_ta_asset': ({'asset_path': {'type': 'string'}, 'view': {'type': 'string'}, 'name': {'type': 'string'}, 'lod': {'type': 'integer', 'minimum': 0}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 500}}, ['asset_path'], 'Inspect UE4.24 TA asset and get its dedicated revision. BlendSpace axes/samples/grid; sequence views notifies/curves; Montage sections/slots/notifies/curves; Mesh lods or morph_deltas (name/lod required); Physics bodies/constraints; ControlRig hierarchy; LevelSequence bindings/sections. Skeleton returns revision only. Nested reflected arrays capped at 100, morph deltas paginated separately.'),
+    'ue_edit_ta_asset': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': list(TA_OPERATIONS)}, 'config_json': {'type': 'string', 'description': 'Operation-specific JSON; see docs/ta-operations.md. Replacements replace the entire named collection. No implicit save.'}}, ['asset_path', 'expected_revision', 'operation', 'config_json'], 'Edit TA assets in memory using ue_inspect_ta_asset revision. Native UE4.24 APIs, no PIE writes. New float-curve names additionally need expected_skeleton_revision and modify the Skeleton; save that separately. Operations: ' + ', '.join(TA_OPERATIONS)),
+    'ue_save_ta_asset': (COMMON_WRITE, ['asset_path', 'expected_revision'], 'Back up and save entire current TA asset, including user edits. Use ue_inspect_ta_asset revision. ControlRig Blueprints compile first. Other assets have no compilation gate. This does not prove playback correctness.'),
+    'ue_inspect_animation_asset': ({'asset_path': {'type': 'string'}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ['asset_path'], 'Inspect AnimSequence, Montage, BlendSpace, SkeletalMesh or PhysicsAsset. Returns paginated reflected properties plus revision and sequence track/mesh summaries. Nested arrays are limited to 100; not a lossless export. Read-only.'),
+    'ue_sample_animation_bone': ({'asset_path': {'type': 'string'}, 'bone_name': {'type': 'string'}, 'time': {'type': 'number', 'minimum': 0}, 'end_time': {'type': 'number', 'minimum': 0}}, ['asset_path', 'bone_name', 'time'], 'Sample one real bone and its ancestors from raw AnimSequence tracks at time in seconds. Returns local/component transforms and root motion delta to end_time (default same time). Missing tracks use Skeleton reference pose. No AnimBP, mesh retargeting, virtual bones or world evaluation.'),
+    'ue_edit_animation_asset': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': ['set_root_motion', 'set_float_curve_key', 'set_notify_time', 'add_section', 'set_section_next']}, 'name': {'type': 'string'}, 'time': {'type': 'number', 'minimum': 0}, 'value': {'type': 'number', 'minimum': -1e9, 'maximum': 1e9}, 'index': {'type': 'integer', 'minimum': 0}, 'enabled': {'type': 'boolean'}, 'force_root_lock': {'type': 'boolean'}, 'next_section': {'type': 'string'}}, ['asset_path', 'expected_revision', 'operation'], 'Edit AnimSequence or Montage in memory. set_root_motion requires enabled/force_root_lock; set_float_curve_key requires existing curve name/time/value; set_notify_time requires index/time; add_section requires name/time; set_section_next requires name/next_section (empty ends playback). Inspect again after edits; notify sorting changes indices. Does not save.'),
+    'ue_save_animation_asset': (COMMON_WRITE, ['asset_path', 'expected_revision'], 'Back up and save the entire current AnimSequence or Montage, including user edits. No Blueprint compile gate. Inspect before saving.'),
+    'ue_read_animation_pose': ({'object_path': {'type': 'string'}, 'bone_name': {'type': 'string'}, 'machine_name': {'type': 'string'}}, ['object_path', 'bone_name'], 'Read a real PIE SkeletalMeshComponent bone world/component transform, AnimInstance and active montage. Optional machine_name returns current state. Last evaluated pose may be stale if ticking is disabled. Read-only.'),
     'ue_inspect_asset': ({'asset_path': {'type': 'string'}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ['asset_path'], 'Read /Game asset reflected properties with pagination. Structs/arrays are structured, integer values are decimal strings to preserve precision, object references are paths. Unsupported types use UE text. Depth limit 6, array limit 100, value budget 5000; not a lossless serializer or write revision.'),
     'ue_inspect_skeleton_edit': ({'asset_path': {'type': 'string'}}, ['asset_path'], 'Read Skeleton editable snapshot, sockets and revision for Skeleton writes. This revision differs from Blueprint revisions.'),
     'ue_edit_skeleton': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': ['add_slot', 'add_socket', 'add_virtual_bone']}, 'name': {'type': 'string'}, 'bone_name': {'type': 'string'}, 'target_bone': {'type': 'string'}}, ['asset_path', 'expected_revision', 'operation'], 'Add a Skeleton slot, socket at its bone origin, or virtual bone in memory. Slots/sockets need name; sockets need bone_name; virtual bones need bone_name and target_bone. Affects all assets sharing the Skeleton. Use ue_inspect_skeleton_edit revision. Does not save.'),
@@ -208,9 +276,19 @@ RUNTIME_SCHEMAS = {
     'ue_list_components': ({'object_path': {'type': 'string'}}, ['object_path'], 'Read components on an Actor in the active PIE world.'),
     'ue_read_runtime_property': ({'object_path': {'type': 'string'}, 'property': {'type': 'string'}}, ['object_path', 'property'], 'Read an exposed Actor/Component property from the active PIE world as UE property text. No function calls or runtime writes.'),
 }
+RUNTIME_SCHEMAS['ue_inspect_ta_asset'][0].update({
+    'index': {'type': 'integer', 'minimum': 0},
+    'section_path': {'type': 'string'},
+    'channel': {'type': 'integer', 'minimum': 0},
+})
 for tool_name, (properties, required, description) in RUNTIME_SCHEMAS.items():
     TOOLS.append({'name': tool_name, 'description': description, 'inputSchema': {
         'type': 'object', 'properties': properties, 'required': required, 'additionalProperties': False}})
+
+ANIMATION_EDIT_PROPERTIES = RUNTIME_SCHEMAS['ue_edit_animation_asset'][0]
+ANIMATION_EDIT_PROPERTIES['operation']['enum'].append('replace_raw_track')
+ANIMATION_EDIT_PROPERTIES['track_json'] = {'type': 'string', 'description': 'For replace_raw_track: name is an existing bone track; JSON has positions/scales xyz arrays and rotations xyzw arrays, each with 1 or frame-count keys. Replaces the whole local track. Source-raw-data sequences are rejected.'}
+TOOLS.append({'name': 'ue_read_animation_track', 'description': 'Read paginated raw local bone track keys. Each channel has independent total and the same offset/limit. Single key means constant. No retargeting or runtime evaluation.', 'inputSchema': {'type': 'object', 'properties': {'asset_path': {'type': 'string'}, 'bone_name': {'type': 'string'}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 500}}, 'required': ['asset_path', 'bone_name'], 'additionalProperties': False}})
 
 SKELETON_PROPERTIES = RUNTIME_SCHEMAS['ue_edit_skeleton'][0]
 SKELETON_PROPERTIES['operation']['enum'].extend(['remove_slot', 'rename_slot', 'remove_socket', 'rename_socket', 'set_socket_transform', 'add_retarget_pose', 'set_retarget_bone', 'remove_retarget_pose', 'remove_virtual_bone', 'rename_virtual_bone'])
@@ -238,6 +316,20 @@ ANALYSIS_TOOLS = [
 for tool in ANALYSIS_TOOLS:
     tool['annotations'] = {'readOnlyHint': True, 'destructiveHint': False, 'idempotentHint': True, 'openWorldHint': False}
 TOOLS.extend(ANALYSIS_TOOLS)
+
+BATCH_READ_TOOLS = frozenset({
+    'ue_inspect_ta_asset',
+    'ue_inspect_animation_asset', 'ue_read_animation_track',
+    'ue_sample_animation_bone', 'ue_inspect_skeleton_chain',
+    'ue_analyze_anim_blueprint',
+})
+TOOLS.append({'name': 'ue_batch_animation_read',
+              'description': 'Sequential read-only animation inspection, at most 20 requests. requests_json is an array of {name, arguments}; allowed names: ' + ', '.join(sorted(BATCH_READ_TOOLS)) + '. Per-item errors are returned; no writes, saves or recursive batches.',
+              'inputSchema': {'type': 'object', 'properties': {'requests_json': {'type': 'string'}}, 'required': ['requests_json'], 'additionalProperties': False},
+              'annotations': {'readOnlyHint': True, 'destructiveHint': False}})
+TOOLS.append({'name': 'ue_batch_ta_write',
+              'description': 'Sequential in-memory TA edits, 1..20 items. requests_json is an array of ue_edit_ta_asset argument objects. All schemas checked before submission; engine validation occurs per item. Stops on first failure. NOT atomic: earlier writes remain in memory, no saves or rollback. Each item needs an explicit revision; for repeated edits to one asset use separate calls with fresh revisions. Acknowledge partial completion explicitly.',
+              'inputSchema': {'type': 'object', 'properties': {'requests_json': {'type': 'string'}, 'acknowledge_partial_completion': {'type': 'boolean'}}, 'required': ['requests_json', 'acknowledge_partial_completion'], 'additionalProperties': False}})
 
 
 def write_args(name, args):
@@ -298,6 +390,87 @@ def write_args(name, args):
 def invoke(bridge, name, args):
     if not isinstance(args, dict):
         raise ValueError('arguments must be an object')
+    if name == 'ue_create_ta_asset':
+        validate_args(name, args)
+        if not args['destination'].startswith('/Game/'):
+            raise ValueError('destination must start with /Game/')
+        if 'source_asset' in args:
+            if 'kind' in args or 'skeleton_path' in args or not args['source_asset'].startswith('/Game/') or not args.get('expected_revision'):
+                raise ValueError('Duplication needs source_asset and revision, not kind/skeleton_path')
+        elif 'kind' not in args or 'expected_revision' in args:
+            raise ValueError('Creation requires kind; no source revision applies')
+        elif args['kind'].startswith('blendspace') and not args.get('skeleton_path', '').startswith('/Game/'):
+            raise ValueError('BlendSpace creation requires a /Game/ skeleton_path')
+    if name == 'ue_edit_ta_asset':
+        validate_ta_write(args)
+    if name == 'ue_save_ta_asset':
+        validate_args(name, args)
+        if not args['asset_path'].startswith('/Game/') or not args['expected_revision']:
+            raise ValueError('A /Game/ asset and nonempty revision are required')
+    if name == 'ue_batch_ta_write':
+        validate_args(name, args)
+        if not args['acknowledge_partial_completion']:
+            raise ValueError('Batch is not atomic; acknowledge_partial_completion must be true')
+        if len(args['requests_json'].encode('utf-8')) > 4 * 1024 * 1024:
+            raise ValueError('Batch exceeds 4 MiB')
+        requests = json.loads(args['requests_json'])
+        if not isinstance(requests, list) or not 1 <= len(requests) <= 20:
+            raise ValueError('Batch requires 1..20 edit argument objects')
+        paths = set()
+        for item in requests:
+            if not isinstance(item, dict):
+                raise ValueError('Batch items must be argument objects')
+            validate_ta_write(item)
+            if item['asset_path'] in paths:
+                raise ValueError('Repeated asset requires separate calls with fresh revisions')
+            paths.add(item['asset_path'])
+        results = []
+        for index, item in enumerate(requests):
+            try:
+                result = invoke(bridge, 'ue_edit_ta_asset', item)
+                results.append({'index': index, 'asset_path': item['asset_path'], 'result': result})
+                if result.get('ok') is not True or 'error' in result:
+                    return {'ok': False, 'atomic': False, 'saved': False, 'failed_index': index, 'completed': index, 'results': results}
+            except Exception as exc:
+                results.append({'index': index, 'asset_path': item['asset_path'], 'error': str(exc)})
+                return {'ok': False, 'atomic': False, 'saved': False, 'failed_index': index, 'completed': index, 'results': results}
+        return {'ok': True, 'atomic': False, 'saved': False, 'completed': len(results), 'results': results}
+    if name == 'ue_batch_animation_read':
+        validate_args(name, args)
+        if len(args['requests_json']) > 256 * 1024:
+            raise ValueError('Batch request exceeds 256 KiB')
+        requests = json.loads(args['requests_json'])
+        if not isinstance(requests, list) or not 1 <= len(requests) <= 20:
+            raise ValueError('Batch requires 1..20 requests')
+        for item in requests:
+            if not isinstance(item, dict) or set(item) != {'name', 'arguments'} or not isinstance(item['name'], str) or item['name'] not in BATCH_READ_TOOLS:
+                raise ValueError('Batch contains an unsupported tool or malformed item')
+            if not isinstance(item['arguments'], dict):
+                raise ValueError('Batch arguments must be objects')
+            validate_args(item['name'], item['arguments'])
+        results = []
+        for item in requests:
+            try:
+                results.append({'name': item['name'], 'result': invoke(bridge, item['name'], item['arguments'])})
+            except Exception as exc:
+                results.append({'name': item['name'], 'error': str(exc)})
+        return {'results': results, 'read_only': True}
+    if name == 'ue_edit_animation_asset':
+        validate_args(name, args)
+        required = {
+            'replace_raw_track': ['name', 'track_json'],
+            'set_root_motion': ['enabled', 'force_root_lock'],
+            'set_float_curve_key': ['name', 'time', 'value'],
+            'set_notify_time': ['index', 'time'],
+            'add_section': ['name', 'time'],
+            'set_section_next': ['name', 'next_section'],
+        }[args['operation']]
+        if any(k not in args for k in required):
+            raise ValueError('Operation requires: ' + ', '.join(required))
+        if not args['expected_revision'] or not args['asset_path'].startswith('/Game/'):
+            raise ValueError('A /Game/ asset and nonempty revision are required')
+    if name == 'ue_read_animation_track':
+        return bridge.call('read_animation_track', **validate_args(name, args))
     if name in ('ue_inspect_skeleton_chain', 'ue_analyze_anim_blueprint'):
         validate_args(name, args)
         if not args['asset_path'].startswith('/Game/'):

@@ -7,5 +7,6 @@
   "Category": "Editor",
   "EnabledByDefault": true,
   "CanContainContent": false,
-  "Modules": [{"Name": "UEBlueprintBridge", "Type": "Editor", "LoadingPhase": "PostEngineInit"}]
+  "Modules": [{"Name": "UEBlueprintBridge", "Type": "Editor", "LoadingPhase": "PostEngineInit"}],
+  "Plugins": [{"Name": "ControlRig", "Enabled": true}]
 }

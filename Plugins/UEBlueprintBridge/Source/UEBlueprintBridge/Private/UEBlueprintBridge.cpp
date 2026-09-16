@@ -23,6 +23,8 @@ static FString PathOf(const UObject* O) { return O ? O->GetPathName() : FString(
 #include "RuntimeOps.h"
 #include "SkeletonWriteOps.h"
 #include "StructuredAssetOps.h"
+#include "AnimationAssetOps.h"
+#include "TAAssetOps.h"
 #include "EditorSelectionOps.h"
 
 class FUEBlueprintBridge : public IModuleInterface
@@ -187,6 +189,17 @@ class FUEBlueprintBridge : public IModuleInterface
             return RuntimeOps::Run(Action, Request);
         }
         else if (Action == TEXT("inspect_skeleton_edit") || Action == TEXT("edit_skeleton") || Action == TEXT("save_skeleton")) return SkeletonWrite::Run(Action, Request);
+        else if (Action == TEXT("evaluate_ta_asset")) return TAProductionOps::Evaluate(Request);
+        else if (Action == TEXT("create_ta_asset")) return TAProductionOps::Create(Request);
+        else if (Action == TEXT("inspect_ta_asset")) return TAAssetOps::Inspect(Request);
+        else if (Action == TEXT("edit_ta_asset")) return TAAssetOps::Edit(Request, false);
+        else if (Action == TEXT("save_ta_asset")) return TAAssetOps::Edit(Request, true);
+        else if (Action == TEXT("inspect_animation_asset")) return AnimationAssetOps::Inspect(Request);
+        else if (Action == TEXT("sample_animation_bone")) return AnimationAssetOps::Sample(Request);
+        else if (Action == TEXT("read_animation_track")) return AnimationAssetOps::ReadTrack(Request);
+        else if (Action == TEXT("edit_animation_asset")) return AnimationAssetOps::Edit(Request, false);
+        else if (Action == TEXT("save_animation_asset")) return AnimationAssetOps::Edit(Request, true);
+        else if (Action == TEXT("read_animation_pose")) return AnimationAssetOps::RuntimePose(Request);
         else if (Action == TEXT("inspect_asset")) return StructuredAssetOps::Inspect(Request);
         else if (Action == TEXT("select_blueprint_node")) return EditorSelectionOps::SelectBlueprintNode(Request);
         else if (Action == TEXT("list_assets")) return AssetOps::List(Request);
