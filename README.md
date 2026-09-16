@@ -135,6 +135,9 @@ Persona 私有源码，不能直接当作其他引擎版本的兼容实现。反
 - Visual Studio 2019、v142 工具链和兼容的 Windows SDK，用于编译插件。
 - Python 3.9 或更高版本。桥接程序只使用 Python 标准库。
 
+预编译发布包只免除插件编译所需的 Visual Studio、Windows SDK 和
+UnrealBuildTool；运行 MCP bridge 仍然需要 Python 3.9 或更高版本。
+
 ## 构建插件
 
 关闭目标编辑器后，在 PowerShell 中执行：
@@ -169,7 +172,8 @@ Persona 私有源码，不能直接当作其他引擎版本的兼容实现。反
 
 ### 使用预编译发布包
 
-Windows 用户可以从 GitHub Release 下载与 UE4.24 匹配的
+Windows 用户可以从 [GitHub v0.5.0 Release](https://github.com/Matoba-Seiji/UE_MCP/releases/tag/v0.5.0)
+下载与 UE4.24 匹配的
 `UEBlueprintBridge-0.5.0-UE4.24-Win64.zip`。解压后，在 PowerShell 中执行：
 
 ```powershell
@@ -182,6 +186,12 @@ UnrealBuildTool。安装脚本会为目标工程创建安装备份，并为 DLL 
 
 预编译包只适用于对应的 Unreal Engine、平台和编辑器 ABI。当前发布包只针对
 UE4.24 Win64；其他引擎版本或平台请继续使用源码构建流程。
+
+当前包的 SHA-256：
+
+```text
+6518EA9B68E1830E012C31D17AF9C32848D066DABF28BEA3A1015A07B994593E
+```
 
 ## 配置 MCP 客户端
 
@@ -209,7 +219,8 @@ UE4.24 Win64；其他引擎版本或平台请继续使用源码构建流程。
 python -u server/bridge.py --project C:\path\to\YourProject.uproject
 ```
 
-目标工程必须已经在 Unreal Editor 中打开，并且插件已经加载。桥接程序使用
+目标工程必须已经在 Unreal Editor 中打开，并且插件已经加载。预编译插件安装完成后，
+仍需使用本仓库中的 `server/bridge.py` 启动 MCP bridge。桥接程序使用
 UTF-8 MCP stdio，通过本地文件队列串行处理编辑器请求。
 
 ## 推荐使用流程
