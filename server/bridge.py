@@ -11,9 +11,13 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from snapshots import SnapshotStore, structural_diff
 from animation_analysis import skeleton_chain, inspect_anim_blueprint
+from skills.catalog import apply_tool_metadata
+from verification import verified_write
 
 
 class Bridge:
+    supports_postconditions = True
+
     def __init__(self, project, timeout=45):
         self.project = Path(project).resolve()
         if not self.project.is_file() or self.project.suffix != '.uproject':
@@ -47,7 +51,15 @@ class Bridge:
                     cancellation.touch()
                     cancel_sent = True
                 if response.exists():
-                    result = json.loads(response.read_text(encoding='utf-8-sig'))
+                    try:
+                        result = json.loads(response.read_text(encoding='utf-8-sig'))
+                    except (OSError, PermissionError, json.JSONDecodeError):
+                        # UE writes through a temporary file and atomically
+                        # replaces the response. On Windows, the just-moved
+                        # file can remain briefly locked by the editor thread.
+                        # Keep polling within the original request deadline.
+                        time.sleep(0.05)
+                        continue
                     if cancel_sent:
                         raise RuntimeError('Cancellation requested. Editor response: ' + json.dumps(result, ensure_ascii=False) + '. An operation already executing may have completed; inspect state before retrying.')
                     if 'error' in result:
@@ -331,6 +343,10 @@ TOOLS.append({'name': 'ue_batch_ta_write',
               'description': 'Sequential in-memory extended-asset edits, 1..20 items. requests_json is an array of ue_edit_ta_asset argument objects. All schemas checked before submission; engine validation occurs per item. Stops on first failure. NOT atomic: earlier writes remain in memory, no saves or rollback. Each item needs an explicit revision; for repeated edits to one asset use separate calls with fresh revisions. Acknowledge partial completion explicitly.',
               'inputSchema': {'type': 'object', 'properties': {'requests_json': {'type': 'string'}, 'acknowledge_partial_completion': {'type': 'boolean'}}, 'required': ['requests_json', 'acknowledge_partial_completion'], 'additionalProperties': False}})
 
+# Schemas remain in this compatibility module for now; domain policy comes
+# from server/skills/* and is projected onto every advertised tool here.
+apply_tool_metadata(TOOLS)
+
 
 def write_args(name, args):
     validate_args(name, args)
@@ -387,6 +403,42 @@ def write_args(name, args):
     return name.removeprefix('ue_'), args
 
 
+def ta_verification_view(operation, args):
+    """Choose the smallest stable TA inspection view for before/after checks."""
+    views = {
+        'add_notify': 'notifies', 'edit_notify': 'notifies', 'remove_notify': 'notifies',
+        'set_notify_scalar': 'notify_properties', 'set_notify_object': 'notify_properties',
+        'replace_float_curve': 'curves', 'remove_float_curve': 'curves',
+        'replace_transform_curve': 'transform_curves', 'remove_transform_curve': 'transform_curves',
+        'bake_transform_curves': 'transform_curves',
+        'replace_montage_sections': 'sections', 'replace_montage_slot': 'slots',
+        'set_lod_screen_size': 'lods', 'regenerate_lods': 'lods', 'remove_lod': 'lods',
+        'replace_morph_deltas': 'morph_deltas', 'scale_morph_deltas': 'morph_deltas',
+        'remove_morph_target': 'lods',
+        'set_body_mass': 'bodies', 'replace_body_primitives': 'bodies',
+        'set_constraint_limits': 'constraints',
+        'sequencer_replace_float_keys': 'float_keys',
+    }
+    view = views.get(operation)
+    if not view:
+        return {}
+    result = {'view': view}
+    if view == 'morph_deltas':
+        config = json.loads(args['config_json'])
+        if 'name' in config:
+            result['name'] = config['name']
+        if 'lod' in config:
+            result['lod'] = config['lod']
+    if view == 'float_keys':
+        config = json.loads(args['config_json'])
+        result.update({key: config[key] for key in ('section_path', 'channel') if key in config})
+    if view == 'notify_properties':
+        config = json.loads(args['config_json'])
+        if 'index' in config:
+            result['index'] = config['index']
+    return result
+
+
 def invoke(bridge, name, args):
     if not isinstance(args, dict):
         raise ValueError('arguments must be an object')
@@ -401,8 +453,13 @@ def invoke(bridge, name, args):
             raise ValueError('Creation requires kind; no source revision applies')
         elif args['kind'].startswith('blendspace') and not args.get('skeleton_path', '').startswith('/Game/'):
             raise ValueError('BlendSpace creation requires a /Game/ skeleton_path')
+        return verified_write(bridge, 'create_ta_asset', 'inspect_ta_asset', None,
+                              'create_ta_asset', args, args)
     if name == 'ue_edit_ta_asset':
         validate_ta_write(args)
+        return verified_write(bridge, 'edit_ta_asset', 'inspect_ta_asset',
+                              args['asset_path'], args['operation'], args, args,
+                              inspection_args=ta_verification_view(args['operation'], args))
     if name == 'ue_save_ta_asset':
         validate_args(name, args)
         if not args['asset_path'].startswith('/Game/') or not args['expected_revision']:
@@ -469,6 +526,8 @@ def invoke(bridge, name, args):
             raise ValueError('Operation requires: ' + ', '.join(required))
         if not args['expected_revision'] or not args['asset_path'].startswith('/Game/'):
             raise ValueError('A /Game/ asset and nonempty revision are required')
+        return verified_write(bridge, 'edit_animation_asset', 'inspect_animation_asset',
+                              args['asset_path'], args['operation'], args, args)
     if name == 'ue_read_animation_track':
         return bridge.call('read_animation_track', **validate_args(name, args))
     if name in ('ue_inspect_skeleton_chain', 'ue_analyze_anim_blueprint'):
@@ -501,6 +560,10 @@ def invoke(bridge, name, args):
         end = min(offset + limit, len(changes))
         return {'asset': before['asset'], 'before_revision': before['revision'], 'after_revision': after['revision'], 'total': len(changes), 'changes': changes[offset:end], 'next_offset': end if end < len(changes) else None}
     if name in RUNTIME_SCHEMAS:
+        if name == 'ue_edit_skeleton':
+            validated = validate_args(name, args)
+            return verified_write(bridge, 'edit_skeleton', 'inspect_skeleton_edit',
+                                  args['asset_path'], args['operation'], args, validated)
         return bridge.call(name.removeprefix('ue_'), **validate_args(name, args))
     if name in ('ue_list_assets', 'ue_create_blueprint'):
         validate_args(name, args)
@@ -515,9 +578,19 @@ def invoke(bridge, name, args):
                 raise ValueError('animation requires a /Game/ skeleton_path')
             if 'parent_class' in args and not args['parent_class'].startswith('/Script/'):
                 raise ValueError('parent_class must be a native /Script/ class')
+        if name == 'ue_create_blueprint':
+            return verified_write(bridge, 'create_blueprint', 'inspect_blueprint', None,
+                                  'create_blueprint', args, args)
         return bridge.call(name.removeprefix('ue_'), **args)
     if name in ('ue_edit_blueprint','ue_duplicate_blueprint','ue_compile_blueprint','ue_save_blueprint'):
         action, kwargs = write_args(name, args)
+        if name == 'ue_edit_blueprint':
+            return verified_write(bridge, action, 'inspect_blueprint',
+                                  args['asset_path'], args['operation'], args, kwargs)
+        if name == 'ue_duplicate_blueprint':
+            return verified_write(bridge, action, 'inspect_blueprint',
+                                  args['asset_path'], 'duplicate_blueprint', args, kwargs,
+                                  after_asset_path=args['destination'])
         return bridge.call(action, **kwargs)
     if name == 'ue_inspect_skeleton':
         if set(args) - {'asset_path','include_virtual_bones'}:
@@ -564,7 +637,7 @@ def handle(bridge, message):
         requested = params.get('protocolVersion')
         answer['result'] = {'protocolVersion': requested if requested in supported else '2024-11-05',
                             'capabilities': {'tools': {}},
-                            'serverInfo': {'name': 'ue424-blueprint-reader', 'version': '0.5.0-dev'}}
+                            'serverInfo': {'name': 'ue424-blueprint-reader', 'version': '0.5.0'}}
     elif method == 'ping':
         answer['result'] = {}
     elif method == 'tools/list':

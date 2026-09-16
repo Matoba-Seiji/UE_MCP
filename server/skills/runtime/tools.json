@@ -1,0 +1,9 @@
+{
+  "skill": "runtime",
+  "tools": ["ue_pie_control", "ue_list_actors", "ue_list_components", "ue_read_runtime_property"],
+  "read_only_tools": ["ue_list_actors", "ue_list_components", "ue_read_runtime_property"],
+  "destructive_tools": ["ue_pie_control"],
+  "idempotent_tools": ["ue_list_actors", "ue_list_components", "ue_read_runtime_property"],
+  "timeouts": {"ue_pie_control": 90},
+  "next_tools": {"ue_pie_control": ["ue_pie_control", "ue_list_actors"]}
+}

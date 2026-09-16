@@ -1,0 +1,13 @@
+{
+  "skill": "extended-assets",
+  "tools": [
+    "ue_evaluate_ta_asset", "ue_create_ta_asset", "ue_inspect_ta_asset", "ue_edit_ta_asset",
+    "ue_save_ta_asset", "ue_batch_ta_write"
+  ],
+  "read_only_tools": ["ue_evaluate_ta_asset", "ue_inspect_ta_asset"],
+  "destructive_tools": ["ue_create_ta_asset", "ue_edit_ta_asset", "ue_save_ta_asset", "ue_batch_ta_write"],
+  "idempotent_tools": ["ue_evaluate_ta_asset", "ue_inspect_ta_asset"],
+  "verification": {"ue_create_ta_asset": "postcondition", "ue_edit_ta_asset": "postcondition"},
+  "timeouts": {"ue_batch_ta_write": 120},
+  "next_tools": {"ue_edit_ta_asset": ["ue_inspect_ta_asset", "ue_save_ta_asset"]}
+}

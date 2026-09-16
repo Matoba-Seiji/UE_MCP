@@ -216,6 +216,14 @@ inline FObj Inspect(const FObj& Request)
         for (int32 I = 0; I < Total; ++I) if (Page(I))
         {
             FObj K = MakeShared<FJsonObject>(); K->SetStringField(TEXT("name"), Keys[I].Name.ToString()); K->SetNumberField(TEXT("type"), static_cast<int32>(Keys[I].Type));
+            FName Parent = NAME_None;
+            if (Keys[I].Type == ERigElementType::Bone && Rig->HierarchyContainer.BoneHierarchy.GetIndex(Keys[I].Name) != INDEX_NONE)
+                Parent = Rig->HierarchyContainer.BoneHierarchy[Keys[I].Name].ParentName;
+            else if (Keys[I].Type == ERigElementType::Space && Rig->HierarchyContainer.SpaceHierarchy.GetIndex(Keys[I].Name) != INDEX_NONE)
+                Parent = Rig->HierarchyContainer.SpaceHierarchy[Keys[I].Name].ParentName;
+            else if (Keys[I].Type == ERigElementType::Control && Rig->HierarchyContainer.ControlHierarchy.GetIndex(Keys[I].Name) != INDEX_NONE)
+                Parent = Rig->HierarchyContainer.ControlHierarchy[Keys[I].Name].ParentName;
+            K->SetStringField(TEXT("parent"), Parent.ToString());
             K->SetObjectField(TEXT("initial_global"), SkeletonRead::Transform(Rig->HierarchyContainer.GetInitialGlobalTransform(Keys[I]))); Items.Add(JV(K));
         }
         R->SetStringField(TEXT("graph_inspection_tool"), TEXT("ue_inspect_blueprint"));

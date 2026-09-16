@@ -1,0 +1,29 @@
+{
+  "skill": "blueprint",
+  "tools": [
+    "ue_ping", "ue_list_blueprints", "ue_inspect_blueprint", "ue_duplicate_blueprint",
+    "ue_edit_blueprint", "ue_compile_blueprint", "ue_save_blueprint", "ue_list_assets",
+    "ue_create_blueprint", "ue_inspect_asset", "ue_capture_blueprint_snapshot",
+    "ue_diff_blueprint_snapshots", "ue_select_blueprint_node", "ue_analyze_anim_blueprint"
+  ],
+  "read_only_tools": [
+    "ue_ping", "ue_list_blueprints", "ue_inspect_blueprint", "ue_list_assets",
+    "ue_inspect_asset", "ue_capture_blueprint_snapshot", "ue_diff_blueprint_snapshots",
+    "ue_select_blueprint_node", "ue_analyze_anim_blueprint"
+  ],
+  "destructive_tools": ["ue_duplicate_blueprint", "ue_edit_blueprint", "ue_save_blueprint", "ue_create_blueprint"],
+  "idempotent_tools": [
+    "ue_ping", "ue_list_blueprints", "ue_inspect_blueprint", "ue_list_assets", "ue_inspect_asset",
+    "ue_capture_blueprint_snapshot", "ue_diff_blueprint_snapshots", "ue_select_blueprint_node",
+    "ue_analyze_anim_blueprint"
+  ],
+  "verification": {
+    "ue_duplicate_blueprint": "postcondition",
+    "ue_edit_blueprint": "postcondition",
+    "ue_create_blueprint": "postcondition"
+  },
+  "next_tools": {
+    "ue_edit_blueprint": ["ue_inspect_blueprint", "ue_compile_blueprint"],
+    "ue_duplicate_blueprint": ["ue_inspect_blueprint"]
+  }
+}

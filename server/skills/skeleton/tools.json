@@ -1,0 +1,12 @@
+{
+  "skill": "skeleton",
+  "tools": [
+    "ue_list_skeletons", "ue_inspect_skeleton", "ue_inspect_skeleton_edit",
+    "ue_edit_skeleton", "ue_save_skeleton", "ue_inspect_skeleton_chain"
+  ],
+  "read_only_tools": ["ue_list_skeletons", "ue_inspect_skeleton", "ue_inspect_skeleton_edit", "ue_inspect_skeleton_chain"],
+  "destructive_tools": ["ue_edit_skeleton", "ue_save_skeleton"],
+  "idempotent_tools": ["ue_list_skeletons", "ue_inspect_skeleton", "ue_inspect_skeleton_edit", "ue_inspect_skeleton_chain"],
+  "verification": {"ue_edit_skeleton": "postcondition"},
+  "next_tools": {"ue_edit_skeleton": ["ue_inspect_skeleton_edit", "ue_save_skeleton"]}
+}

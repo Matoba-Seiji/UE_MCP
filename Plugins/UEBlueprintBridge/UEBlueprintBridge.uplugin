@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
   "Version": 5,
-  "VersionName": "0.5.0-dev",
+  "VersionName": "0.5.0",
   "FriendlyName": "UE Blueprint Bridge",
   "Description": "Local Blueprint graph inspection and editing for UE4.24.",
   "Category": "Editor",

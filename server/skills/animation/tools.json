@@ -1,0 +1,20 @@
+{
+  "skill": "animation",
+  "tools": [
+    "ue_inspect_animation_asset", "ue_sample_animation_bone", "ue_edit_animation_asset",
+    "ue_save_animation_asset", "ue_read_animation_pose", "ue_read_animation_track",
+    "ue_batch_animation_read"
+  ],
+  "read_only_tools": [
+    "ue_inspect_animation_asset", "ue_sample_animation_bone", "ue_read_animation_pose",
+    "ue_read_animation_track", "ue_batch_animation_read"
+  ],
+  "destructive_tools": ["ue_edit_animation_asset", "ue_save_animation_asset"],
+  "idempotent_tools": [
+    "ue_inspect_animation_asset", "ue_sample_animation_bone", "ue_read_animation_pose",
+    "ue_read_animation_track", "ue_batch_animation_read"
+  ],
+  "verification": {"ue_edit_animation_asset": "postcondition"},
+  "timeouts": {"ue_batch_animation_read": 90},
+  "next_tools": {"ue_edit_animation_asset": ["ue_inspect_animation_asset", "ue_save_animation_asset"]}
+}

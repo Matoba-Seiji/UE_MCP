@@ -1,5 +1,7 @@
 # UE 蓝图 MCP
 
+当前正式版本：`0.5.0`
+
 这是一个面向 Unreal Engine 4.24 的本地 MCP 插件，用于通过 MCP 客户端读取和
 编辑蓝图、动画蓝图、骨架以及其他部分工程资产。
 
@@ -44,6 +46,58 @@
 | `ue_edit_ta_asset` | 编辑扩展资产的曲线、Notify、LOD、Physics、Control Rig 和 Sequencer |
 | `ue_save_ta_asset` | 备份并保存扩展资产 |
 | `ue_batch_ta_write` | 批量执行扩展资产的内存编辑 |
+
+## Skill 组织和工具元数据
+
+工具仍使用原有的 MCP 名称和参数 schema，但领域清单已经按 Skill 拆分到
+`server/skills`：
+
+```text
+server/skills/
+  blueprint/SKILL.md + tools.json
+  animation/SKILL.md + tools.json
+  skeleton/SKILL.md + tools.json
+  runtime/SKILL.md + tools.json
+  extended-assets/SKILL.md + tools.json
+```
+
+`tools.json` 描述工具属于哪个领域，以及只读、破坏性、幂等、编辑器线程亲和性、
+超时、验证策略和失败后的建议工具。`server/skills/catalog.py` 在启动时把这些
+信息投影到 `tools/list` 的标准 `annotations` 和 `metadata` 字段中。当前的
+schema 和统一入口仍保留在 `server/bridge.py`，以便客户端兼容；后续可以按领域
+逐步迁移 schema 和执行函数，而不需要一次性改变工具名。
+
+## 写入后的结果验证
+
+蓝图、动画资产、骨架和扩展资产的创建或编辑会在真实 `Bridge` 上执行有限的
+`before/after` 检查：
+
+1. 读取写入前的资产状态和 revision。
+2. 执行原有的编辑器请求。
+3. 重新读取写入后的状态。
+4. 返回两个状态的摘要、SHA-256 指纹、revision 和具体后置条件。
+
+成功的写入结果会包含类似字段：
+
+```json
+{
+  "ok": true,
+  "verified": true,
+  "verification": {
+    "before": {"revision": "...", "counts": {"nodes": 4}},
+    "after": {"revision": "...", "counts": {"nodes": 5}},
+    "postconditions": [
+      {"name": "revision_changed", "actual": true, "expected": true}
+    ]
+  }
+}
+```
+
+蓝图连接、引脚默认值、节点移动、节点注释和节点删除会额外检查对应的结构；
+其他资产编辑至少检查 revision 和状态指纹发生变化。若请求已经发送但结果不能
+证明目标状态，响应会将 `ok` 和 `verified` 设为 `false`，并返回
+`postcondition_not_met` 或 `postcondition_unobservable`。轻量测试替身可以不设置
+`supports_postconditions`，因此不会被额外的编辑器读取调用影响。
 
 动画蓝图支持状态机、状态、过渡、序列播放器、参考姿势、布尔混合、插槽、缓存
 姿势、分层混合和部分 IK 节点。具体参数以 `server/bridge.py` 中注册的 MCP
