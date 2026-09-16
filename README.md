@@ -31,24 +31,28 @@
 | `ue_list_actors` | 列出运行中 PIE 世界的 Actor |
 | `ue_list_components` | 列出 Actor 的组件 |
 | `ue_read_runtime_property` | 读取运行时公开属性 |
+| `ue_inspect_animation_asset` | 读取序列、Montage、BlendSpace、SkeletalMesh 和 PhysicsAsset |
+| `ue_read_animation_track` | 读取动画骨骼的原始位置、旋转和缩放关键帧 |
+| `ue_sample_animation_bone` | 按时间采样动画骨骼和祖先链姿势 |
+| `ue_edit_animation_asset` | 编辑动画轨迹、Root Motion、曲线、Notify 和 Montage 段 |
+| `ue_save_animation_asset` | 备份并保存 Sequence 或 Montage |
+| `ue_read_animation_pose` | 读取 PIE 中 SkeletalMeshComponent 的求值姿势 |
+| `ue_batch_animation_read` | 批量执行只读动画检查 |
+| `ue_inspect_ta_asset` | 读取 BlendSpace、LevelSequence、Control Rig 等扩展资产 |
+| `ue_create_ta_asset` | 在内存中创建扩展资产或复制已有资产 |
+| `ue_evaluate_ta_asset` | 执行扩展资产的数据或曲线求值 |
+| `ue_edit_ta_asset` | 编辑扩展资产的曲线、Notify、LOD、Physics、Control Rig 和 Sequencer |
+| `ue_save_ta_asset` | 备份并保存扩展资产 |
+| `ue_batch_ta_write` | 批量执行扩展资产的内存编辑 |
 
 动画蓝图支持状态机、状态、过渡、序列播放器、参考姿势、布尔混合、插槽、缓存
 姿势、分层混合和部分 IK 节点。具体参数以 `server/bridge.py` 中注册的 MCP
 工具定义为准。
 
-## 动画 TA 扩展（第一批）
+## 动画和扩展资产接口
 
-以下接口已加入源码。具体参数和边界见 [TA 操作契约](docs/ta-operations.md)。
-
-| 工具 | 本批范围 |
-| --- | --- |
-| `ue_inspect_animation_asset` | Sequence、Montage、BlendSpace、SkeletalMesh、PhysicsAsset 的分页反射属性和写入 revision；额外返回序列轨迹概况、网格 LOD 数量和 Morph 路径 |
-| `ue_read_animation_track` | 按骨骼名读取原始局部位置、四元数旋转、缩放键；各通道独立 total，共用 offset/limit |
-| `ue_sample_animation_bone` | 按秒采样一根真实骨骼及祖先链，返回局部/组件空间姿势和区间 Root Motion；不支持 Additive、虚拟骨骼、网格重定向或 AnimBP 求值 |
-| `ue_edit_animation_asset` | 替换已有原始轨迹、配置 Root Motion 开关、更新已有 float 曲线键、移动普通 Notify、添加 Montage Section、设置下一 Section |
-| `ue_save_animation_asset` | revision 校验后备份并保存整个 Sequence/Montage，包括当前用户修改；无蓝图编译门禁 |
-| `ue_read_animation_pose` | PIE SkeletalMeshComponent 的最近一次求值骨骼世界/组件空间变换、活动 Montage、可选状态机当前状态 |
-| `ue_batch_animation_read` | 串行只读批量检查，最多 20 项，禁止写入及递归批次 |
+动画和其他扩展资产接口与蓝图、骨架及运行时接口属于同一套 MCP 工具体系。
+具体参数、字段格式和边界见 [资产操作接口契约](docs/asset-operations.md)。
 
 轨迹替换使用 `operation=replace_raw_track`，`name` 为已有骨骼轨迹名。
 `track_json` 包含 `positions`、`rotations`、`scales` 三个数组，每个通道必须有
@@ -57,11 +61,6 @@
 所有编辑先在内存执行；保存前应重新读取，建议先在资产副本上验证。
 普通 Notify 移动后会排序，旧 index 不可继续复用；Notify State 暂不支持移动。
 采样缺失轨迹使用 Skeleton 参考姿势，不等于最终渲染姿势。
-
-### TA 专用扩展
-
-新增 `ue_inspect_ta_asset`、`ue_edit_ta_asset`、`ue_save_ta_asset` 和
-`ue_batch_ta_write`。详细参数见 [TA 操作契约](docs/ta-operations.md)。
 
 - BlendSpace：替换轴和采样点，在临时副本预检后重建采样网格。
 - Montage：创建/替换命名 Slot 的组合段，防止截断现有 Section/Notify。
@@ -72,7 +71,7 @@
 - Sequencer：现有绑定下动画 Section 创建、范围/速率编辑、删除。
 - 批量写入：最多 20 项，遇错即停，不自动保存，不保证原子性。
 
-此版本增加了 UE4.24 ControlRig 插件依赖。BlendSpace 重建依赖本机引擎
+这些接口增加了 UE4.24 ControlRig 插件依赖。BlendSpace 重建依赖本机引擎
 Persona 私有源码，不能直接当作其他引擎版本的兼容实现。反射嵌套数组仍有
 100 项限制，不是完整无损资产导出。
 

@@ -1,15 +1,15 @@
-# UE4.24 TA 操作契约
+# UE4.24 资产操作接口契约
 
 ## Contract
 
-先使用 `ue_inspect_ta_asset` 获取 `revision`，再将其作为
+先使用 `ue_inspect_ta_asset` 获取扩展资产的 `revision`，再将其作为
 `ue_edit_ta_asset` 的 `expected_revision`。每次编辑都会返回新的 revision。
 `config_json` 是 JSON 编码的对象。修改会先保留在内存中，直到调用
-`ue_save_ta_asset`；保存前会创建磁盘备份。TA revision 与动画、蓝图和骨架
+`ue_save_ta_asset`；保存前会创建磁盘备份。这类资产 revision 与动画、蓝图和骨架
 revision 相互独立，包含所属对象序列化内容，是当前会话的校验值，不是可跨会话
 复用的哈希。
 
-此版本需要 UE4.24 ControlRig 插件。BlendSpace 重建会调用当前引擎的 Persona
+这类接口需要 UE4.24 ControlRig 插件。BlendSpace 重建会调用当前引擎的 Persona
 辅助实现，因此必须存在完整的引擎头文件和 Persona 私有源码；不会修改引擎文件。
 
 ## 操作配置
@@ -65,26 +65,25 @@ can also invalidate later revisions and cause a safe stop.
 
 ## 读取视图和限制
 
-`ue_inspect_ta_asset` accepts `view`, `offset`, `limit` (1..500).
-BlendSpace returns axes/sample data/grid count; sequences offer `notifies` and
-`curves`; Montages additionally offer `sections` and `slots`; Mesh offers `lods`
-and `morph_deltas` (requires `name,lod`); Physics offers `bodies` and `constraints`.
-Control Rig returns hierarchy transforms; use Blueprint inspection for its graph.
-LevelSequence returns bindings and animation section ranges. Skeleton returns a
-revision. Reflected nested arrays still have a 100-item cap; Morph deltas are
-independently paginated. These are not lossless whole-asset exports.
+`ue_inspect_ta_asset` 接受 `view`、`offset`、`limit`（1..500）。BlendSpace 返回
+坐标轴、采样点和网格数量；Sequence 支持 `notifies` 和 `curves`；Montage 额外
+支持 `sections` 和 `slots`；Mesh 支持 `lods` 和 `morph_deltas`（需要 `name,lod`）；
+Physics 支持 `bodies` 和 `constraints`。Control Rig 返回层级变换，图表请使用
+蓝图检查接口读取。LevelSequence 返回绑定和动画段范围。Skeleton 返回 revision。
+反射嵌套数组仍有 100 项限制，Morph 差值可以单独分页。这些结果不是完整无损的
+整资产导出。
 
 ## 明确边界
 
 ### 生产工作流扩展
 
-`ue_create_ta_asset` creates `blendspace`, `blendspace1d`, `level_sequence`, or
-`control_rig` at an unused destination package. BlendSpaces require skeleton_path.
-Alternatively source_asset plus expected_revision duplicates a supported asset.
-Creation never saves. `ue_evaluate_ta_asset` offers editor_actors, blend_weights,
-float_curve and sequencer_float; these are data/curve evaluations, not rendering.
+`ue_create_ta_asset` 可以在未使用的目标包路径创建 `blendspace`、`blendspace1d`、
+`level_sequence` 或 `control_rig`。BlendSpace 需要提供 `skeleton_path`；也可以
+通过 `source_asset` 和 `expected_revision` 复制已有资产。创建不会自动保存。
+`ue_evaluate_ta_asset` 提供 editor_actors、blend_weights、float_curve 和
+sequencer_float 求值，这些是数据或曲线求值，不是渲染结果。
 
-Additional edit operations:
+其他编辑操作：
 
 | operation | config_json |
 | --- | --- |
