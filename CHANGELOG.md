@@ -1,5 +1,11 @@
 # Changelog
 
+## Release process - 2026-09-17
+
+- Added checked-in prebuilt package workflow under `releases/`.
+- Added `scripts/package-release.ps1` with DFM lite version and DLL hash validation.
+- Added `scripts/publish.ps1` to package, commit, and push source plus the built plugin together.
+
 ## 0.5.0-dfm-lite - 2026-09-16
 
 - 移除 ControlRig、ControlRigDeveloper 和 Persona 私有源码依赖。

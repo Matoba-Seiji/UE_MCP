@@ -32,6 +32,14 @@ foreach ($required in @($manifestPath, $binaryPath, $modulesPath)) {
 }
 $releaseManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if ($releaseManifest.VersionName -ne '0.5.0-dfm-lite') { throw 'Release package is not a DFM lite build.' }
+$packageManifestPath = Join-Path $packagePath 'package-manifest.json'
+if (Test-Path -LiteralPath $packageManifestPath) {
+    $packageManifest = Get-Content -LiteralPath $packageManifestPath -Raw | ConvertFrom-Json
+    $actualHash = (Get-FileHash -LiteralPath $binaryPath -Algorithm SHA256).Hash
+    if ($packageManifest.plugin_version -ne $releaseManifest.VersionName -or $packageManifest.dll_sha256 -ne $actualHash) {
+        throw 'Release package manifest does not match the plugin binary.'
+    }
+}
 
 $projectDir = Split-Path $projectPath -Parent
 $destination = Join-Path $projectDir 'Plugins\UEBlueprintBridge'

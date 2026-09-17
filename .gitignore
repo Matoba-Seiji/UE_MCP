@@ -21,3 +21,9 @@ mcp-client.json
 artifacts/
 tests/
 scripts/verify_*.py
+
+# Checked-in prebuilt plugin packages. Temporary build output remains ignored.
+!releases/
+!releases/**
+releases/**/Intermediate/
+releases/**/Intermediate/**

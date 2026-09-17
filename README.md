@@ -167,6 +167,30 @@ DFM 本机使用 VS2019 MSVC `14.29.30133` 和 Windows SDK `10.0.19041.0`；构�
 ./scripts/install.ps1 -Project D:\df_stable\DFMEditor\DFM\DeltaForce.uproject
 ```
 
+### 上传构建产物
+
+每次向 GitHub 上传前，应先将本次构建的插件打包到 `releases/`。打包脚本会验证
+插件版本必须是 `0.5.0-dfm-lite`，并记录 DLL 的 SHA-256；旧的 `0.1.0` 只读 DLL
+会被拒绝：
+
+```powershell
+./scripts/package-release.ps1 `
+  -BuiltPlugin ./build/Verify/Plugins/UEBlueprintBridge
+```
+
+构建、打包、提交并推送可以一次完成：
+
+```powershell
+./scripts/publish.ps1 `
+  -BuiltPlugin ./build/Verify/Plugins/UEBlueprintBridge `
+  -Message "release: publish DFM lite plugin build"
+```
+
+最终提交会包含 `releases/UEBlueprintBridge-...` 下的 `uplugin`、源码、配置、Editor
+DLL、modules 清单和 `package-manifest.json`。`build/` 仍然只是临时构建目录，不会
+把中间文件和旧缓存一并上传。`install-release.ps1` 安装时也会校验包清单中的 DLL
+哈希。
+
 安装只复制 `UEBlueprintBridge` 编辑器插件；MCP bridge 仍从本仓库的
 `server/bridge.py` 启动。当前安装脚本会在目标工程的 `Saved/UEBlueprintBridge`
 下保留安装备份。
