@@ -1,11 +1,23 @@
 #pragma once
+#include "AssetRegistryModule.h"
 #include "Engine/DataTable.h"
+#include "Engine/UserDefinedStruct.h"
 #include "DataTableEditorUtils.h"
 #include "JsonObjectConverter.h"
+#include "Misc/PackageName.h"
+#include "ScopedTransaction.h"
 
 namespace DataTableOps
 {
 inline FObj Error(const FString& Message) { return BlueprintWrite::Error(Message); }
+
+inline bool IsValidRowStruct(const UScriptStruct* Struct)
+{
+    const UScriptStruct* TableRowStruct = FTableRowBase::StaticStruct();
+    const bool BasedOnTableRowBase = TableRowStruct && Struct && Struct->IsChildOf(TableRowStruct) && Struct != TableRowStruct;
+    const bool IsUserDefined = Struct && Struct->IsA<UUserDefinedStruct>();
+    return Struct && Struct->GetOutermost() != GetTransientPackage() && (BasedOnTableRowBase || IsUserDefined);
+}
 
 inline UDataTable* Load(const FObj& Request, const TCHAR* Key = TEXT("asset_path"))
 {
@@ -42,6 +54,30 @@ inline FObj RowValues(UDataTable* Table, const FName& RowName)
     return Values;
 }
 
+inline bool ParseValuesObject(const UScriptStruct* RowStruct, const FObj& Values, uint8* RowData, FString& OutError)
+{
+    if (!RowStruct || !Values.IsValid() || !RowData)
+    {
+        OutError = TEXT("DataTable row structure is unavailable.");
+        return false;
+    }
+    for (const auto& Pair : Values->Values)
+    {
+        UProperty* Property = FindField<UProperty>(const_cast<UScriptStruct*>(RowStruct), *Pair.Key);
+        if (!Property || Property->HasAnyPropertyFlags(CPF_Transient))
+        {
+            OutError = FString::Printf(TEXT("Unknown or transient row field: %s."), *Pair.Key);
+            return false;
+        }
+    }
+    if (!FJsonObjectConverter::JsonObjectToUStruct(Values.ToSharedRef(), RowStruct, RowData, 0, CPF_Transient))
+    {
+        OutError = TEXT("row_json could not be applied to the DataTable row structure.");
+        return false;
+    }
+    return true;
+}
+
 inline bool ParseRowJson(UDataTable* Table, const FObj& Request, uint8* RowData, FString& OutError)
 {
     FString Text = BlueprintWrite::Str(Request, TEXT("row_json"));
@@ -51,26 +87,76 @@ inline bool ParseRowJson(UDataTable* Table, const FObj& Request, uint8* RowData,
         OutError = TEXT("row_json must be a JSON object of at most 4 MiB.");
         return false;
     }
-    if (!Table || !Table->GetRowStruct() || !RowData)
+    return ParseValuesObject(Table ? Table->GetRowStruct() : nullptr, Values, RowData, OutError);
+}
+
+inline FObj Create(const FObj& Request)
+{
+    if (!GEditor || GEditor->PlayWorld) return Error(TEXT("Stop PIE before creating DataTables."));
+    double Expires = 0;
+    if (!Request->TryGetNumberField(TEXT("expires_unix"), Expires) || Expires < FDateTime::UtcNow().ToUnixTimestamp()) return Error(TEXT("Request expired."));
+
+    const FString Destination = BlueprintWrite::Str(Request, TEXT("destination"));
+    const FString RowStructPath = BlueprintWrite::Str(Request, TEXT("row_struct"));
+    if (!Destination.StartsWith(TEXT("/Game/")) || !FPackageName::IsValidLongPackageName(Destination) || Destination.Contains(TEXT(".")) ||
+        FPackageName::DoesPackageExist(Destination) || FindPackage(nullptr, *Destination))
+        return Error(TEXT("Unused /Game/Folder/Name package path required."));
+
+    UScriptStruct* RowStruct = LoadObject<UScriptStruct>(nullptr, *RowStructPath);
+    if (!IsValidRowStruct(RowStruct)) return Error(TEXT("row_struct must be a valid native or user-defined DataTable row structure."));
+
+    TArray<TPair<FName, FObj>> PendingRows;
+    const FString RowsText = BlueprintWrite::Str(Request, TEXT("rows_json"));
+    if (!RowsText.IsEmpty())
     {
-        OutError = TEXT("DataTable row structure is unavailable.");
-        return false;
-    }
-    for (const auto& Pair : Values->Values)
-    {
-        UProperty* Property = FindField<UProperty>(Table->GetRowStruct(), *Pair.Key);
-        if (!Property || Property->HasAnyPropertyFlags(CPF_Transient))
+        if (RowsText.Len() > 4 * 1024 * 1024) return Error(TEXT("rows_json must be at most 4 MiB."));
+        TSharedPtr<FJsonObject> Rows;
+        if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(RowsText), Rows) || !Rows.IsValid())
+            return Error(TEXT("rows_json must be a JSON object mapping row names to row values."));
+        for (const auto& Pair : Rows->Values)
         {
-            OutError = FString::Printf(TEXT("Unknown or transient row field: %s."), *Pair.Key);
-            return false;
+            if (Pair.Value->Type != EJson::Object) return Error(TEXT("Each rows_json value must be a JSON object."));
+            const FName RowName(*Pair.Key);
+            if (RowName.IsNone()) return Error(TEXT("rows_json contains an invalid row name."));
+            const FObj Values = Pair.Value->AsObject();
+            uint8* Temp = static_cast<uint8*>(FMemory::Malloc(RowStruct->GetStructureSize()));
+            RowStruct->InitializeStruct(Temp);
+            FString ParseError;
+            const bool Parsed = ParseValuesObject(RowStruct, Values, Temp, ParseError);
+            RowStruct->DestroyStruct(Temp);
+            FMemory::Free(Temp);
+            if (!Parsed) return Error(ParseError);
+            PendingRows.Add(TPair<FName, FObj>(RowName, Values));
         }
     }
-    if (!FJsonObjectConverter::JsonObjectToUStruct(Values.ToSharedRef(), Table->GetRowStruct(), RowData, 0, CPF_Transient))
+
+    const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "CreateDataTable", "MCP create DataTable"));
+    UPackage* Package = CreatePackage(nullptr, *Destination);
+    const FString AssetName = FPackageName::GetLongPackageAssetName(Destination);
+    UDataTable* Table = NewObject<UDataTable>(Package, *AssetName, RF_Public | RF_Standalone | RF_Transactional);
+    if (!Table) return Error(TEXT("DataTable creation failed."));
+    Table->RowStruct = RowStruct;
+    for (const TPair<FName, FObj>& Pending : PendingRows)
     {
-        OutError = TEXT("row_json could not be applied to the DataTable row structure.");
-        return false;
+        uint8* RowData = FDataTableEditorUtils::AddRow(Table, Pending.Key);
+        if (!RowData) return Error(TEXT("Could not create a DataTable row."));
+        FString ParseError;
+        if (!ParseValuesObject(RowStruct, Pending.Value, RowData, ParseError)) return Error(ParseError);
+        FDataTableEditorUtils::BroadcastPostChange(Table, FDataTableEditorUtils::EDataTableChangeInfo::RowData);
     }
-    return true;
+    FAssetRegistryModule::AssetCreated(Table);
+    Table->PostEditChange();
+    Table->MarkPackageDirty();
+
+    FObj Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("ok"), true);
+    Result->SetBoolField(TEXT("saved"), false);
+    Result->SetStringField(TEXT("asset"), Table->GetPathName());
+    Result->SetStringField(TEXT("row_struct"), RowStruct->GetPathName());
+    Result->SetNumberField(TEXT("rows_created"), PendingRows.Num());
+    Result->SetNumberField(TEXT("total"), Table->GetRowMap().Num());
+    Result->SetStringField(TEXT("revision"), Revision(Table));
+    return Result;
 }
 
 inline FObj Inspect(const FObj& Request)

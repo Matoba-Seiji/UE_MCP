@@ -14,8 +14,10 @@
 - 将 BlendSpace 限制为读取、求值和 AnimBP 播放；禁用创建和整表替换。
 - Core profile keeps the plugin package independent of project-specific integrations.
 - 增加 DataTable 行级读取、更新、删除、重命名、复制和保存。
+- 增加 DataTable 创建能力，支持原生或用户定义行结构及初始行数据。
 - 增加 AnimSequence Float/Transform 曲线跨资产复制。
-- 增加兼容 AnimBP 图表之间的节点会话剪贴板复制粘贴。
+- 增加兼容 AnimBP 姿势图、过渡图和 EventGraph 之间的节点会话剪贴板复制粘贴。
+- 支持复制包含 IsMoving 等逻辑在内的 AnimBP EventGraph 节点链。
 - 增加 AnimBP 类设置修改和检查。
 
 ## 0.5.0 - 2026-09-16

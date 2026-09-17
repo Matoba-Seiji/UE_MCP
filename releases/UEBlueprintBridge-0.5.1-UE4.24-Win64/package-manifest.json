@@ -1,14 +1,14 @@
 {
-    "package":  "UEBlueprintBridge-0.5.1-UE4.24-Win64",
-    "plugin_version":  "0.5.1",
-    "engine_version":  "4.24",
-    "platform":  "Win64",
-    "dll":  "Plugins/UEBlueprintBridge/Binaries/Win64/UE4Editor-UEBlueprintBridge.dll",
-    "dll_sha256":  "89EAFFA695EEEF98DB9E449B5F7EE5790C436E67FAD7FE85F20DBE9ECE41241C",
-    "plugin_directories":  [
-                               "Config",
-                               "Source"
-                           ],
-    "includes_debug_symbols":  false,
-    "packaged_at_utc":  "2026-09-17T08:30:28.3766276Z"
+  "package": "UEBlueprintBridge-0.5.1-UE4.24-Win64",
+  "plugin_version": "0.5.1",
+  "engine_version": "4.24",
+  "platform": "Win64",
+  "dll": "Plugins/UEBlueprintBridge/Binaries/Win64/UE4Editor-UEBlueprintBridge.dll",
+  "dll_sha256": "1D8968C07EB86CA08C2176C858F94504BFCF396BCB1574C46B9CE4B5249039D4",
+  "plugin_directories": [
+    "Config",
+    "Source"
+  ],
+  "includes_debug_symbols": false,
+  "packaged_at_utc": "2026-09-17T11:29:05.0361102Z"
 }

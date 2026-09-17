@@ -75,12 +75,16 @@ inline bool IsAnimGraph(UEdGraph* Graph)
 {
     return Graph && Graph->GetSchema() && (Graph->GetSchema()->IsA(UAnimationGraphSchema::StaticClass()) || Graph->GetSchema()->IsA(UAnimationTransitionSchema::StaticClass()));
 }
+inline bool IsAnimEventGraph(UAnimBlueprint* BP, UEdGraph* Graph)
+{
+    return BP && Graph && Graph->GetSchema() && Graph->GetSchema()->IsA(UEdGraphSchema_K2::StaticClass()) && BP->UbergraphPages.Contains(Graph);
+}
 inline FObj CopyAnimNodes(const FObj& Request)
 {
     const FString SourcePath = Str(Request, TEXT("source_asset_path"));
     UAnimBlueprint* SourceBP = SourcePath.StartsWith(TEXT("/Game/")) ? Cast<UAnimBlueprint>(LoadObject<UObject>(nullptr, *SourcePath)) : nullptr;
     UEdGraph* SourceGraph = SourceBP ? GraphByPath(SourceBP, Str(Request, TEXT("source_graph_path"))) : nullptr;
-    if (!SourceBP || !SourceBP->TargetSkeleton || !IsAnimGraph(SourceGraph)) return Error(TEXT("Source must be an Animation Blueprint graph with a target Skeleton."));
+    if (!SourceBP || !SourceBP->TargetSkeleton || (!IsAnimGraph(SourceGraph) && !IsAnimEventGraph(SourceBP, SourceGraph))) return Error(TEXT("Source must be an Animation Blueprint pose, transition, or EventGraph with a target Skeleton."));
     FObj Wrapper;
     const FString NodeIdsJson = Str(Request, TEXT("node_ids_json"));
     if (NodeIdsJson.Len() > 1024 * 1024 || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(FString::Printf(TEXT("{\"ids\":%s}"), *NodeIdsJson)), Wrapper) || !Wrapper.IsValid()) return Error(TEXT("node_ids_json must be a JSON array."));
@@ -91,7 +95,13 @@ inline FObj CopyAnimNodes(const FObj& Request)
     {
         FString Id; if (!Value->TryGetString(Id)) return Error(TEXT("node_ids_json must contain strings."));
         UEdGraphNode* SourceNode = BlueprintWrite::Node(SourceGraph, Id);
-        if (!SourceNode || !SourceNode->CanDuplicateNode()) return Error(TEXT("Source node was not found or cannot be duplicated."));
+        if (!SourceNode) return Error(TEXT("Source node was not found in the requested graph."));
+        // UE4.24 marks several K2 EventGraph nodes as non-duplicable even though
+        // the graph serializer can export/import them safely. Keep the stricter
+        // guard for pose and transition graphs, where compiler-owned nodes are
+        // more likely to be selected accidentally.
+        if (!IsAnimEventGraph(SourceBP, SourceGraph) && !SourceNode->CanDuplicateNode())
+            return Error(TEXT("Source node cannot be duplicated in this animation graph."));
         SourceNode->PrepareForCopying(); Selected.Add(SourceNode);
     }
     FString Clipboard;
@@ -108,7 +118,7 @@ inline FObj PasteAnimNodes(const FObj& Request)
     const FString TargetPath = Str(Request, TEXT("asset_path"));
     UAnimBlueprint* TargetBP = TargetPath.StartsWith(TEXT("/Game/")) ? Cast<UAnimBlueprint>(LoadObject<UObject>(nullptr, *TargetPath)) : nullptr;
     UEdGraph* TargetGraph = TargetBP ? GraphByPath(TargetBP, Str(Request, TEXT("graph_path"))) : nullptr;
-    if (!TargetBP || !TargetBP->TargetSkeleton || !IsAnimGraph(TargetGraph)) return Error(TEXT("Target must be an Animation Blueprint graph with a target Skeleton."));
+    if (!TargetBP || !TargetBP->TargetSkeleton || (!IsAnimGraph(TargetGraph) && !IsAnimEventGraph(TargetBP, TargetGraph))) return Error(TEXT("Target must be an Animation Blueprint pose, transition, or EventGraph with a target Skeleton."));
     const FString SourceSkeleton = Str(Request, TEXT("source_skeleton"));
     if (!SourceSkeleton.IsEmpty() && SourceSkeleton != TargetBP->TargetSkeleton->GetPathName()) return Error(TEXT("Source and target Animation Blueprints must use the same target Skeleton."));
     const FString Clipboard = Str(Request, TEXT("clipboard"));

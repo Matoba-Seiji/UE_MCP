@@ -215,6 +215,7 @@ class FUEBlueprintBridge : public IModuleInterface
         else if (Action == TEXT("save_animation_asset")) return AnimationAssetOps::Edit(Request, true);
         else if (Action == TEXT("copy_animation_curve")) return AnimationAssetOps::CopyCurve(Request);
         else if (Action == TEXT("inspect_data_table")) return DataTableOps::Inspect(Request);
+        else if (Action == TEXT("create_data_table")) return DataTableOps::Create(Request);
         else if (Action == TEXT("edit_data_table")) return DataTableOps::Edit(Request);
         else if (Action == TEXT("save_data_table")) return DataTableOps::Save(Request);
         else if (Action == TEXT("read_animation_pose")) return AnimationAssetOps::RuntimePose(Request);

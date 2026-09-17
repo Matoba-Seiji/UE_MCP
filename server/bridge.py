@@ -184,8 +184,8 @@ TOOLS.extend([
          'required': ['destination'], 'additionalProperties': False}},
  ])
 TOOLS.extend([
-    {'name': 'ue_copy_anim_nodes',
-     'description': 'Copy 1..500 nodes from an Animation Blueprint graph into a session clipboard. Internal links are preserved. Paste with ue_paste_anim_nodes. Source and target must use the same target Skeleton.',
+     {'name': 'ue_copy_anim_nodes',
+     'description': 'Copy 1..500 nodes from an Animation Blueprint pose, transition, or EventGraph into a session clipboard. Internal links are preserved. Paste with ue_paste_anim_nodes. Source and target must use the same target Skeleton.',
      'inputSchema': {'type': 'object', 'properties': {
          'source_asset_path': {'type': 'string'}, 'source_graph_path': {'type': 'string'},
          'node_ids_json': {'type': 'string', 'description': 'JSON array of source node ids'},
@@ -193,7 +193,7 @@ TOOLS.extend([
          'required': ['source_asset_path', 'source_graph_path', 'node_ids_json', 'expected_revision'], 'additionalProperties': False},
      'annotations': {'readOnlyHint': True, 'destructiveHint': False, 'idempotentHint': True}},
     {'name': 'ue_paste_anim_nodes',
-     'description': 'Paste nodes from a session clipboard into an Animation Blueprint pose or transition graph. Optionally provide x/y as the pasted group center. Compile and save separately.',
+     'description': 'Paste nodes from a session clipboard into an Animation Blueprint pose, transition, or EventGraph. Optionally provide x/y as the pasted group center. Compile and save separately.',
      'inputSchema': {'type': 'object', 'properties': {
          **COMMON_WRITE, 'graph_path': {'type': 'string'}, 'clipboard_id': {'type': 'string'},
          'x': {'type': 'number'}, 'y': {'type': 'number'}},
@@ -298,6 +298,7 @@ RUNTIME_SCHEMAS = {
     'ue_edit_skeleton': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': ['add_slot', 'add_socket', 'add_virtual_bone']}, 'name': {'type': 'string'}, 'bone_name': {'type': 'string'}, 'target_bone': {'type': 'string'}}, ['asset_path', 'expected_revision', 'operation'], 'Add a Skeleton slot, socket at its bone origin, or virtual bone in memory. Slots/sockets need name; sockets need bone_name; virtual bones need bone_name and target_bone. Affects all assets sharing the Skeleton. Use ue_inspect_skeleton_edit revision. Does not save.'),
     'ue_save_skeleton': (COMMON_WRITE, ['asset_path', 'expected_revision'], 'Back up and save the entire current Skeleton, including user edits. Unlike Blueprint save, there is no Blueprint compilation gate. Uses ue_inspect_skeleton_edit revision.'),
     'ue_inspect_data_table': ({'asset_path': {'type': 'string'}, 'row_name': {'type': 'string'}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 500}}, ['asset_path'], 'Read a DataTable row structure and paginated row values. row_name reads one exact row. Read-only.'),
+    'ue_create_data_table': ({'destination': {'type': 'string'}, 'row_struct': {'type': 'string'}, 'rows_json': {'type': 'string'}}, ['destination', 'row_struct'], 'Create a new DataTable in memory at an unused /Game package path. row_struct is an exact native /Script/ or user-defined /Game/ UScriptStruct path. Optional rows_json is a JSON object mapping row names to row field objects. Does not save.'),
     'ue_edit_data_table': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': ['upsert_row', 'remove_row', 'rename_row', 'copy_row']}, 'row_name': {'type': 'string'}, 'new_row_name': {'type': 'string'}, 'row_json': {'type': 'string'}}, ['asset_path', 'expected_revision', 'operation', 'row_name'], 'Edit DataTable rows in memory. upsert_row applies row_json fields, remove_row deletes, rename_row renames, and copy_row duplicates. Inspect and save separately.'),
     'ue_save_data_table': (COMMON_WRITE, ['asset_path', 'expected_revision'], 'Back up and save a DataTable after row edits. Use ue_inspect_data_table revision.'),
     'ue_copy_animation_curve': ({'source_asset_path': {'type': 'string'}, 'source_curve_name': {'type': 'string'}, 'target_asset_path': {'type': 'string'}, 'target_curve_name': {'type': 'string'}, 'curve_type': {'type': 'string', 'enum': ['float', 'transform']}, 'source_expected_revision': {'type': 'string'}, 'target_expected_revision': {'type': 'string'}, 'expected_target_skeleton_revision': {'type': 'string'}}, ['source_asset_path', 'source_curve_name', 'target_asset_path', 'curve_type', 'source_expected_revision', 'target_expected_revision'], 'Copy a float or transform curve from one AnimSequence to another in memory. target_curve_name defaults to source_curve_name. A new target curve name requires expected_target_skeleton_revision. Save the target animation separately.'),
@@ -622,6 +623,20 @@ def invoke(bridge, name, args):
         result['revision'] = after.get('revision', result.get('revision'))
         result['verification'] = {'target_asset': args['target_asset_path'], 'target_revision': result['revision'], 'curve_type': args['curve_type']}
         return result
+    if name == 'ue_create_data_table':
+        validate_args(name, args)
+        if not args['destination'].startswith('/Game/') or '.' in args['destination']:
+            raise ValueError('destination must be an unused /Game/Folder/Name package path')
+        if not args['row_struct'].startswith(('/Script/', '/Game/')):
+            raise ValueError('row_struct must be an exact /Script/ or /Game/ UScriptStruct path')
+        if 'rows_json' in args:
+            if len(args['rows_json'].encode('utf-8')) > 4 * 1024 * 1024:
+                raise ValueError('rows_json exceeds 4 MiB')
+            rows = json.loads(args['rows_json'], parse_constant=lambda value: (_ for _ in ()).throw(ValueError('Non-finite JSON number: ' + value)))
+            if not isinstance(rows, dict) or any(not isinstance(value, dict) for value in rows.values()):
+                raise ValueError('rows_json must map row names to JSON objects')
+        return verified_write(bridge, 'create_data_table', 'inspect_data_table', None,
+                              'create_data_table', args, args)
     if name == 'ue_edit_data_table':
         validate_args(name, args)
         required = {'upsert_row': ['row_json'], 'rename_row': ['new_row_name'], 'copy_row': ['new_row_name'], 'remove_row': []}[args['operation']]

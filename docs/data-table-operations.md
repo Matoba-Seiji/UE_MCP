@@ -1,5 +1,23 @@
 # DataTable 操作接口
 
+## 创建
+
+使用 `ue_create_data_table` 在未使用的 `/Game/...` 包路径创建 DataTable。必须提供
+准确的 `row_struct` 路径：原生行结构使用 `/Script/...`，用户定义结构使用
+`/Game/...`。可选的 `rows_json` 是一个以行名为键、行字段对象为值的 JSON 对象。
+创建只发生在编辑器内存中，返回 revision 后调用 `ue_save_data_table` 才会写入
+`.uasset`。
+
+示例：
+
+```json
+{
+  "destination": "/Game/DataTables/DT_MCP_Demo",
+  "row_struct": "/Script/GameplayTags.GameplayTagTableRow",
+  "rows_json": "{\"Default\":{\"Tag\":\"Demo.Default\",\"DevComment\":\"Example\"}}"
+}
+```
+
 ## 读取
 
 先调用 `ue_inspect_data_table`，传入准确的 `/Game/...` DataTable 路径。返回值包含

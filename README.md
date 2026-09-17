@@ -23,7 +23,7 @@
 | `ue_duplicate_blueprint` | 在编辑器内存中复制蓝图，拒绝覆盖已有目标 |
 | `ue_create_blueprint` | 创建普通蓝图或动画蓝图 |
 | `ue_edit_blueprint` | 修改引脚、连线、变量、节点、状态机和动画姿势 |
-| `ue_copy_anim_nodes` | 将 AnimBP 图表节点复制到当前 MCP 会话剪贴板 |
+| `ue_copy_anim_nodes` | 将 AnimBP 姿势图、过渡图或 EventGraph 节点复制到当前 MCP 会话剪贴板 |
 | `ue_paste_anim_nodes` | 将节点粘贴到另一个兼容 AnimBP 图表 |
 | `ue_compile_blueprint` | 编译蓝图并返回错误和警告，不保存资产 |
 | `ue_save_blueprint` | 编译通过后备份并保存蓝图 |
@@ -50,6 +50,7 @@
 | `ue_save_ta_asset` | 备份并保存扩展资产 |
 | `ue_batch_ta_write` | 批量执行扩展资产的内存编辑 |
 | `ue_inspect_data_table` | 分页读取 DataTable 行结构和行值 |
+| `ue_create_data_table` | 使用指定行结构创建 DataTable，并可写入初始行 |
 | `ue_edit_data_table` | 添加/更新、删除、重命名或复制 DataTable 行 |
 | `ue_save_data_table` | 备份并保存 DataTable |
 
@@ -142,8 +143,8 @@ AnimBP 的 `ue_edit_blueprint` 增加了 `set_class_settings` 操作，可以修
 后应立即编译并检查图表兼容性。
 
 AnimBP 节点复制使用当前 MCP bridge 会话内的 clipboard id，不使用系统剪贴板。
-复制的节点必须来自动画姿势图或过渡图，源和目标必须使用同一个 Target Skeleton；
-内部节点连线会保留，指向源图表外部变量或对象的引用需要粘贴后重新检查。
+复制的节点可以来自姿势图、过渡图或 EventGraph，源和目标必须使用同一个 Target
+Skeleton；内部节点连线会保留，指向源图表外部变量或对象的引用需要粘贴后重新检查。
 
 ## 上传构建产物
 
