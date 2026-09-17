@@ -52,7 +52,9 @@ $pluginDestination = Join-Path $packageRoot 'Plugins\UEBlueprintBridge'
 New-Item -ItemType Directory -Path $pluginDestination -Force | Out-Null
 
 Copy-Item -LiteralPath $manifestPath -Destination $pluginDestination -Force
-foreach ($folder in @('Config', 'Source')) {
+# Keep the published plugin self-contained when it owns editor assets, localization,
+# Python helpers, or other plugin resources. Empty/absent optional folders are omitted.
+foreach ($folder in @('Config', 'Content', 'Resources', 'Source')) {
     $sourceFolder = Join-Path $pluginPath $folder
     if (Test-Path -LiteralPath $sourceFolder) {
         Copy-Item -LiteralPath $sourceFolder -Destination $pluginDestination -Recurse -Force
@@ -74,6 +76,9 @@ $metadata = [ordered]@{
     platform = $Platform
     dll = 'Plugins/UEBlueprintBridge/Binaries/Win64/UE4Editor-UEBlueprintBridge.dll'
     dll_sha256 = $hash
+    plugin_directories = @(@('Config', 'Content', 'Resources', 'Source') | Where-Object {
+        Test-Path -LiteralPath (Join-Path $pluginDestination $_)
+    })
     includes_debug_symbols = $false
     packaged_at_utc = (Get-Date).ToUniversalTime().ToString('o')
 }

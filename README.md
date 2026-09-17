@@ -164,9 +164,12 @@ AnimBP 节点复制使用当前 MCP bridge 会话内的 clipboard id，不使用
 ```
 
 最终提交会包含 `releases/UEBlueprintBridge-...` 下的基础插件文件、Editor DLL、
-modules 清单和 `package-manifest.json`，明确不包含 PDB 调试符号或任何项目工程文件。`build/` 仍然只是临时构建目录，不会
-把中间文件和旧缓存一并上传。`install-release.ps1` 安装时也会校验包清单中的 DLL
-哈希。
+modules 清单和 `package-manifest.json`。插件目录按 Unreal 的常见分发结构保留
+`UEBlueprintBridge.uplugin`、`Config/`、`Source/`，以及插件实际存在时的
+`Content/`、`Resources/`；当前 Core 插件没有后两个目录。明确不包含 PDB 调试符号、
+中间文件、缓存或任何项目工程文件。`build/` 仍然只是临时构建目录，不会把旧缓存
+一并上传。`install-release.ps1` 安装时也会校验包清单中的 DLL 哈希，并复制插件拥有的
+可选内容目录。
 
 安装只复制 `UEBlueprintBridge` 编辑器插件；MCP bridge 仍从本仓库的
 `server/bridge.py` 启动。当前安装脚本会在目标工程的 `Saved/UEBlueprintBridge`

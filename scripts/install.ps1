@@ -30,6 +30,12 @@ $manifest = Get-Content -LiteralPath (Join-Path $built 'UE4Editor.modules') -Raw
 $manifest.Modules.UEBlueprintBridge = $dllName
 Copy-Item -LiteralPath "$workspace\Plugins\UEBlueprintBridge\Source" -Destination $destination -Recurse -Force
 Copy-Item -LiteralPath "$workspace\Plugins\UEBlueprintBridge\UEBlueprintBridge.uplugin" -Destination $destination -Force
+foreach ($folder in @('Config', 'Content', 'Resources')) {
+    $sourceFolder = Join-Path $workspace "Plugins\UEBlueprintBridge\$folder"
+    if (Test-Path -LiteralPath $sourceFolder) {
+        Copy-Item -LiteralPath $sourceFolder -Destination $destination -Recurse -Force
+    }
+}
 # Remove source files retired by the current core profile when upgrading an older install.
 $obsoleteSource = Join-Path $destination 'Source\UEBlueprintBridge\Private\BlendSpaceRebuild.cpp'
 if (Test-Path -LiteralPath $obsoleteSource) { Remove-Item -LiteralPath $obsoleteSource -Force }

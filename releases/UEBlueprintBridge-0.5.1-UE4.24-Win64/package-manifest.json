@@ -5,6 +5,10 @@
     "platform":  "Win64",
     "dll":  "Plugins/UEBlueprintBridge/Binaries/Win64/UE4Editor-UEBlueprintBridge.dll",
     "dll_sha256":  "89EAFFA695EEEF98DB9E449B5F7EE5790C436E67FAD7FE85F20DBE9ECE41241C",
+    "plugin_directories":  [
+                               "Config",
+                               "Source"
+                           ],
     "includes_debug_symbols":  false,
-    "packaged_at_utc":  "2026-09-17T08:16:40.0334989Z"
+    "packaged_at_utc":  "2026-09-17T08:30:28.3766276Z"
 }
