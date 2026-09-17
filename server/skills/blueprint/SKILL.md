@@ -10,4 +10,7 @@ metadata:
 # Blueprint Skill
 
 Blueprint graph tools use exact asset, graph, node, and pin identifiers from a
-fresh inspection. Mutations are verified by reading the graph again.
+fresh inspection. Mutations are verified by reading the graph again. Animation
+Blueprint nodes can be copied between compatible graphs through a session
+clipboard, and Animation Blueprint class settings can be changed through the
+dedicated class-settings operation.

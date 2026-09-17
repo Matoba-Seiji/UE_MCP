@@ -23,6 +23,7 @@ static FString PathOf(const UObject* O) { return O ? O->GetPathName() : FString(
 #include "RuntimeOps.h"
 #include "SkeletonWriteOps.h"
 #include "StructuredAssetOps.h"
+#include "DataTableOps.h"
 #include "AnimationAssetOps.h"
 #include "TAAssetOps.h"
 #include "EditorSelectionOps.h"
@@ -93,6 +94,18 @@ class FUEBlueprintBridge : public IModuleInterface
             }
         }
         Result->SetObjectField(TEXT("properties_text"), BPProperties);
+        if (UAnimBlueprint* SettingsBP = Cast<UAnimBlueprint>(BP))
+        {
+            FObj ClassSettings = MakeShared<FJsonObject>();
+            ClassSettings->SetStringField(TEXT("parent_class"), PathOf(SettingsBP->ParentClass));
+            ClassSettings->SetStringField(TEXT("target_skeleton"), PathOf(SettingsBP->TargetSkeleton));
+            ClassSettings->SetBoolField(TEXT("use_multithreaded_animation_update"), SettingsBP->bUseMultiThreadedAnimationUpdate);
+            ClassSettings->SetBoolField(TEXT("warn_about_blueprint_usage"), SettingsBP->bWarnAboutBlueprintUsage);
+            ClassSettings->SetBoolField(TEXT("generate_const_class"), SettingsBP->bGenerateConstClass);
+            ClassSettings->SetBoolField(TEXT("generate_abstract_class"), SettingsBP->bGenerateAbstractClass);
+            ClassSettings->SetBoolField(TEXT("deprecate"), SettingsBP->bDeprecate);
+            Result->SetObjectField(TEXT("class_settings"), ClassSettings);
+        }
         TArray<TSharedPtr<FJsonValue>> OutGraphs;
         for (UEdGraph* G : Graphs)
         {
@@ -180,7 +193,8 @@ class FUEBlueprintBridge : public IModuleInterface
             R->SetStringField(TEXT("engine"), FEngineVersion::Current().ToString());
             R->SetStringField(TEXT("project"), FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()));
             R->SetBoolField(TEXT("read_only"), false);
-            R->SetStringField(TEXT("plugin_version"), TEXT("0.5.0"));
+            R->SetStringField(TEXT("plugin_version"), TEXT("0.5.0-dfm-lite"));
+            R->SetStringField(TEXT("profile"), TEXT("dfm-lite"));
         }
         else if (Action == TEXT("pie_control") || Action == TEXT("list_actors") || Action == TEXT("list_components") || Action == TEXT("read_runtime_property"))
         {
@@ -199,8 +213,14 @@ class FUEBlueprintBridge : public IModuleInterface
         else if (Action == TEXT("read_animation_track")) return AnimationAssetOps::ReadTrack(Request);
         else if (Action == TEXT("edit_animation_asset")) return AnimationAssetOps::Edit(Request, false);
         else if (Action == TEXT("save_animation_asset")) return AnimationAssetOps::Edit(Request, true);
+        else if (Action == TEXT("copy_animation_curve")) return AnimationAssetOps::CopyCurve(Request);
+        else if (Action == TEXT("inspect_data_table")) return DataTableOps::Inspect(Request);
+        else if (Action == TEXT("edit_data_table")) return DataTableOps::Edit(Request);
+        else if (Action == TEXT("save_data_table")) return DataTableOps::Save(Request);
         else if (Action == TEXT("read_animation_pose")) return AnimationAssetOps::RuntimePose(Request);
         else if (Action == TEXT("inspect_asset")) return StructuredAssetOps::Inspect(Request);
+        else if (Action == TEXT("copy_anim_nodes")) return BlueprintWrite::CopyAnimNodes(Request);
+        else if (Action == TEXT("paste_anim_nodes")) return BlueprintWrite::PasteAnimNodes(Request);
         else if (Action == TEXT("select_blueprint_node")) return EditorSelectionOps::SelectBlueprintNode(Request);
         else if (Action == TEXT("list_assets")) return AssetOps::List(Request);
         else if (Action == TEXT("create_blueprint"))

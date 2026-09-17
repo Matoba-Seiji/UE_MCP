@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$Engine,
-    [string]$CompilerVersion = '14.29.30154',
+    # DFM's installed VS2019 toolchain is 14.29.30133.
+    [string]$CompilerVersion = '14.29.30133',
     [string]$WindowsSdkVersion = '10.0.19041.0'
 )
 $ErrorActionPreference = 'Stop'
@@ -12,6 +13,10 @@ if ($CompilerVersion -notmatch '^\d+\.\d+\.\d+$' -or $WindowsSdkVersion -notmatc
 $workspace = Split-Path $PSScriptRoot -Parent
 $hostProject = Join-Path $workspace 'build\Verify'
 New-Item -ItemType Directory -Path "$hostProject\Plugins", "$hostProject\Source" -Force | Out-Null
+# Verify is generated output; clear the staged plugin so removed source files
+# from an earlier profile cannot be picked up by UnrealBuildTool.
+$stagedPlugin = Join-Path $hostProject 'Plugins\UEBlueprintBridge'
+if (Test-Path -LiteralPath $stagedPlugin) { Remove-Item -LiteralPath $stagedPlugin -Recurse -Force }
 Copy-Item -LiteralPath "$workspace\Plugins\UEBlueprintBridge" -Destination "$hostProject\Plugins" -Recurse -Force
 Set-Content -LiteralPath "$hostProject\Verify.uproject" -Encoding ascii -Value '{"FileVersion":3,"Plugins":[{"Name":"UEBlueprintBridge","Enabled":true}]}'
 $targetRules = @"
@@ -31,4 +36,11 @@ public class VerifyEditorTarget : TargetRules
 Set-Content -LiteralPath "$hostProject\Source\VerifyEditor.Target.cs" -Encoding ascii -Value $targetRules
 & "$Engine\Engine\Binaries\DotNET\UnrealBuildTool.exe" VerifyEditor Win64 Development "-Project=$hostProject\Verify.uproject" -NoHotReload -NoUBTMakefiles
 if ($LASTEXITCODE -ne 0) { throw "UE build failed: $LASTEXITCODE" }
+$profileMarker = Join-Path $hostProject 'Plugins\UEBlueprintBridge\Binaries\Win64\dfm-lite-build.json'
+@{
+    profile = 'dfm-lite'
+    plugin_version = '0.5.0-dfm-lite'
+    engine_root = (Resolve-Path -LiteralPath $Engine).Path
+    built_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+} | ConvertTo-Json | Set-Content -LiteralPath $profileMarker -Encoding ascii
 Write-Output "Built plugin: $hostProject\Plugins\UEBlueprintBridge"

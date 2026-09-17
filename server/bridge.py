@@ -25,6 +25,7 @@ class Bridge:
         self.root = self.project.parent / 'Saved' / 'UEBlueprintBridge'
         self.timeout = timeout
         self.snapshots = SnapshotStore()
+        self.node_clipboards = {}
         self.context = threading.local()
 
     def call(self, action, **kwargs):
@@ -152,6 +153,7 @@ EXTRA_EDITS = {
     'add_function_graph': ['name'],
     'add_macro_graph': ['name'],
     'add_custom_event': ['graph_path', 'name'],
+    'set_class_settings': ['class_settings_json'],
 }
 EDIT_PROPERTIES['operation']['enum'].extend(EXTRA_EDITS)
 EDIT_PROPERTIES['comment'] = {'type': 'string'}
@@ -165,6 +167,7 @@ EDIT_PROPERTIES['metadata_key'] = {'type': 'string', 'enum': ['Category', 'ToolT
 EDIT_PROPERTIES['config_json'] = {'type': 'string', 'description': 'Layered Blend: {"layers":[{"weight":1,"filters":[{"bone":"spine_01","depth":1}]}]}. IK: {"space":"component","effector":[0,0,0],"joint_target":[0,10,0]}. Node must be disconnected; no automatic pose wiring.'}
 EDIT_PROPERTIES['direction'] = {'type': 'string', 'enum': ['input', 'output'], 'description': 'Signature node pin direction. Function inputs are output pins on entry nodes.'}
 EDIT_PROPERTIES['property_path'] = {'type': 'string', 'description': 'Editable scalar property path, e.g. Node.PlayRate. Node must have no links. Value uses UE property text, not JSON. Object/container writes are rejected.'}
+EDIT_PROPERTIES['class_settings_json'] = {'type': 'string', 'description': 'Animation Blueprint class settings JSON: parent_class, target_skeleton, use_multithreaded_animation_update, warn_about_blueprint_usage, generate_const_class, generate_abstract_class, deprecate.'}
 TOOLS.extend([
     {'name': 'ue_list_assets', 'description': 'Read registered assets under /Game with class/name filtering and sorted pagination. asset_class is a short Unreal class name, e.g. AnimSequence, BlendSpace, SkeletalMesh, Material or Blueprint. Registry changes between pages may change pagination.',
      'inputSchema': {'type': 'object', 'properties': {
@@ -179,12 +182,33 @@ TOOLS.extend([
          'blueprint_type': {'type': 'string', 'enum': ['normal', 'animation'], 'default': 'normal'},
          'parent_class': {'type': 'string'}, 'skeleton_path': {'type': 'string'}},
          'required': ['destination'], 'additionalProperties': False}},
+ ])
+TOOLS.extend([
+    {'name': 'ue_copy_anim_nodes',
+     'description': 'Copy 1..500 nodes from an Animation Blueprint graph into a session clipboard. Internal links are preserved. Paste with ue_paste_anim_nodes. Source and target must use the same target Skeleton.',
+     'inputSchema': {'type': 'object', 'properties': {
+         'source_asset_path': {'type': 'string'}, 'source_graph_path': {'type': 'string'},
+         'node_ids_json': {'type': 'string', 'description': 'JSON array of source node ids'},
+         'expected_revision': {'type': 'string'}},
+         'required': ['source_asset_path', 'source_graph_path', 'node_ids_json', 'expected_revision'], 'additionalProperties': False},
+     'annotations': {'readOnlyHint': True, 'destructiveHint': False, 'idempotentHint': True}},
+    {'name': 'ue_paste_anim_nodes',
+     'description': 'Paste nodes from a session clipboard into an Animation Blueprint pose or transition graph. Optionally provide x/y as the pasted group center. Compile and save separately.',
+     'inputSchema': {'type': 'object', 'properties': {
+         **COMMON_WRITE, 'graph_path': {'type': 'string'}, 'clipboard_id': {'type': 'string'},
+         'x': {'type': 'number'}, 'y': {'type': 'number'}},
+         'required': ['asset_path', 'expected_revision', 'graph_path', 'clipboard_id'], 'additionalProperties': False},
+     'annotations': {'readOnlyHint': False, 'destructiveHint': True, 'idempotentHint': False}},
 ])
 next(t for t in TOOLS if t['name'] == 'ue_edit_blueprint')['description'] += (
     ' Extra operations: delete_node removes deletable K2 nodes without child graphs; '
     'move_node requires graph_path/node_id/x/y; set_node_comment requires graph_path/node_id/comment. '
     'add_function_graph and add_macro_graph require name and a normal Blueprint; '
     'add_custom_event requires graph_path/name in a K2 EventGraph. These create empty signatures.')
+next(t for t in TOOLS if t['name'] == 'ue_edit_blueprint')['description'] += (
+    ' set_class_settings requires class_settings_json and supports parent_class, target_skeleton, '
+    'use_multithreaded_animation_update, warn_about_blueprint_usage, generate_const_class, '
+    'generate_abstract_class and deprecate for Animation Blueprints.')
 
 
 def validate_args(name, args):
@@ -214,8 +238,6 @@ TA_OPERATIONS = {
     'remove_morph_target': ('name', 'acknowledge_references'),
     'replace_montage_sections': ('sections',),
     'set_notify_object': ('index', 'property', 'object_path'),
-    'rig_reparent_element': ('kind', 'name', 'parent', 'acknowledge_references'),
-    'rig_remove_element': ('kind', 'name', 'acknowledge_references'),
     'set_notify_scalar': ('index', 'property', 'value'),
     'replace_transform_curve': ('name', 'keys'),
     'remove_transform_curve': ('name',),
@@ -225,9 +247,7 @@ TA_OPERATIONS = {
     'sequencer_bind_actor': ('object_path',),
     'sequencer_add_transform': ('binding', 'start_frame', 'end_frame'),
     'replace_body_primitives': ('index', 'shapes'),
-    'rig_add_element': ('name', 'kind', 'parent', 'translation', 'rotation_degrees', 'scale'),
     'sequencer_replace_float_keys': ('section_path', 'channel', 'keys'),
-    'replace_blendspace': ('axes', 'samples'),
     'replace_montage_slot': ('slot', 'segments'),
     'replace_float_curve': ('name', 'keys'),
     'remove_float_curve': ('name',),
@@ -239,12 +259,6 @@ TA_OPERATIONS = {
     'replace_morph_deltas': ('lod', 'name', 'deltas'),
     'set_constraint_limits': ('index', 'swing1', 'swing2', 'twist'),
     'set_body_mass': ('index', 'mass_kg'),
-    'rig_add_node': ('node', 'function', 'x', 'y'),
-    'rig_set_initial_transform': ('name', 'type', 'translation', 'rotation_degrees', 'scale'),
-    'rig_remove_node': ('node',),
-    'rig_set_pin': ('node', 'pin', 'value'),
-    'rig_connect': ('node', 'pin', 'target_node', 'target_pin'),
-    'rig_disconnect': ('node', 'pin', 'target_node', 'target_pin'),
     'sequencer_add_animation': ('binding', 'animation', 'start_frame', 'end_frame'),
     'sequencer_edit_section': ('section_path', 'start_frame', 'end_frame', 'play_rate'),
     'sequencer_remove_section': ('section_path',),
@@ -270,10 +284,10 @@ def validate_ta_write(args):
 
 RUNTIME_SCHEMAS = {
     'ue_evaluate_ta_asset': ({'mode': {'type': 'string', 'enum': ['editor_actors', 'blend_weights', 'float_curve', 'sequencer_float']}, 'asset_path': {'type': 'string'}, 'config_json': {'type': 'string'}, 'time': {'type': 'number'}, 'name': {'type': 'string'}, 'section_path': {'type': 'string'}, 'channel': {'type': 'integer', 'minimum': 0}}, ['mode'], 'Read-only evaluation: editor_actors lists up to 500 editor-world actors; blend_weights uses asset_path/config_json position xyz; float_curve uses sequence/name/time seconds; sequencer_float uses LevelSequence/section_path/channel/time in tick-resolution frames. Does not run an AnimBP or render a pose.'),
-    'ue_create_ta_asset': ({'destination': {'type': 'string'}, 'kind': {'type': 'string', 'enum': ['blendspace', 'blendspace1d', 'level_sequence', 'control_rig']}, 'skeleton_path': {'type': 'string'}, 'source_asset': {'type': 'string'}, 'expected_revision': {'type': 'string'}}, ['destination'], 'Create an extended asset in memory at an unused /Game/Folder/Name. Choose kind (BlendSpace requires skeleton_path), OR source_asset with its current revision to duplicate. No save, no overwrite.'),
-    'ue_inspect_ta_asset': ({'asset_path': {'type': 'string'}, 'view': {'type': 'string'}, 'name': {'type': 'string'}, 'lod': {'type': 'integer', 'minimum': 0}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 500}}, ['asset_path'], 'Inspect a UE4.24 extended asset and get its dedicated revision. BlendSpace axes/samples/grid; sequence views notifies/curves; Montage sections/slots/notifies/curves; Mesh lods or morph_deltas (name/lod required); Physics bodies/constraints; ControlRig hierarchy; LevelSequence bindings/sections. Skeleton returns revision only. Nested reflected arrays capped at 100, morph deltas paginated separately.'),
+    'ue_create_ta_asset': ({'destination': {'type': 'string'}, 'kind': {'type': 'string', 'enum': ['level_sequence']}, 'source_asset': {'type': 'string'}, 'expected_revision': {'type': 'string'}}, ['destination'], 'DFM lite can create a LevelSequence in memory, or duplicate an existing supported /Game asset with its current revision. No save, no overwrite.'),
+    'ue_inspect_ta_asset': ({'asset_path': {'type': 'string'}, 'view': {'type': 'string'}, 'name': {'type': 'string'}, 'lod': {'type': 'integer', 'minimum': 0}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 500}}, ['asset_path'], 'Inspect a DFM-compatible extended asset and get its dedicated revision. BlendSpace is read-only; sequence views support notifies/curves; Montage supports sections/slots/notifies/curves; Mesh supports lods or morph_deltas (name/lod required); Physics supports bodies/constraints; LevelSequence supports bindings/sections. Skeleton returns revision only. Nested reflected arrays are capped at 100, morph deltas are independently paginated.'),
     'ue_edit_ta_asset': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': list(TA_OPERATIONS)}, 'config_json': {'type': 'string', 'description': 'Operation-specific JSON; see docs/asset-operations.md. Replacements replace the entire named collection. No implicit save.'}}, ['asset_path', 'expected_revision', 'operation', 'config_json'], 'Edit extended assets in memory using ue_inspect_ta_asset revision. Native UE4.24 APIs, no PIE writes. New float-curve names additionally need expected_skeleton_revision and modify the Skeleton; save that separately. Operations: ' + ', '.join(TA_OPERATIONS)),
-    'ue_save_ta_asset': (COMMON_WRITE, ['asset_path', 'expected_revision'], 'Back up and save the current extended asset, including user edits. Use ue_inspect_ta_asset revision. ControlRig Blueprints compile first. Other assets have no compilation gate. This does not prove playback correctness.'),
+    'ue_save_ta_asset': (COMMON_WRITE, ['asset_path', 'expected_revision'], 'Back up and save the current DFM-compatible extended asset, including user edits. Use ue_inspect_ta_asset revision. This does not prove playback correctness.'),
     'ue_inspect_animation_asset': ({'asset_path': {'type': 'string'}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ['asset_path'], 'Inspect AnimSequence, Montage, BlendSpace, SkeletalMesh or PhysicsAsset. Returns paginated reflected properties plus revision and sequence track/mesh summaries. Nested arrays are limited to 100; not a lossless export. Read-only.'),
     'ue_sample_animation_bone': ({'asset_path': {'type': 'string'}, 'bone_name': {'type': 'string'}, 'time': {'type': 'number', 'minimum': 0}, 'end_time': {'type': 'number', 'minimum': 0}}, ['asset_path', 'bone_name', 'time'], 'Sample one real bone and its ancestors from raw AnimSequence tracks at time in seconds. Returns local/component transforms and root motion delta to end_time (default same time). Missing tracks use Skeleton reference pose. No AnimBP, mesh retargeting, virtual bones or world evaluation.'),
     'ue_edit_animation_asset': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': ['set_root_motion', 'set_float_curve_key', 'set_notify_time', 'add_section', 'set_section_next']}, 'name': {'type': 'string'}, 'time': {'type': 'number', 'minimum': 0}, 'value': {'type': 'number', 'minimum': -1e9, 'maximum': 1e9}, 'index': {'type': 'integer', 'minimum': 0}, 'enabled': {'type': 'boolean'}, 'force_root_lock': {'type': 'boolean'}, 'next_section': {'type': 'string'}}, ['asset_path', 'expected_revision', 'operation'], 'Edit AnimSequence or Montage in memory. set_root_motion requires enabled/force_root_lock; set_float_curve_key requires existing curve name/time/value; set_notify_time requires index/time; add_section requires name/time; set_section_next requires name/next_section (empty ends playback). Inspect again after edits; notify sorting changes indices. Does not save.'),
@@ -283,6 +297,10 @@ RUNTIME_SCHEMAS = {
     'ue_inspect_skeleton_edit': ({'asset_path': {'type': 'string'}}, ['asset_path'], 'Read Skeleton editable snapshot, sockets and revision for Skeleton writes. This revision differs from Blueprint revisions.'),
     'ue_edit_skeleton': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': ['add_slot', 'add_socket', 'add_virtual_bone']}, 'name': {'type': 'string'}, 'bone_name': {'type': 'string'}, 'target_bone': {'type': 'string'}}, ['asset_path', 'expected_revision', 'operation'], 'Add a Skeleton slot, socket at its bone origin, or virtual bone in memory. Slots/sockets need name; sockets need bone_name; virtual bones need bone_name and target_bone. Affects all assets sharing the Skeleton. Use ue_inspect_skeleton_edit revision. Does not save.'),
     'ue_save_skeleton': (COMMON_WRITE, ['asset_path', 'expected_revision'], 'Back up and save the entire current Skeleton, including user edits. Unlike Blueprint save, there is no Blueprint compilation gate. Uses ue_inspect_skeleton_edit revision.'),
+    'ue_inspect_data_table': ({'asset_path': {'type': 'string'}, 'row_name': {'type': 'string'}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 500}}, ['asset_path'], 'Read a DataTable row structure and paginated row values. row_name reads one exact row. Read-only.'),
+    'ue_edit_data_table': ({**COMMON_WRITE, 'operation': {'type': 'string', 'enum': ['upsert_row', 'remove_row', 'rename_row', 'copy_row']}, 'row_name': {'type': 'string'}, 'new_row_name': {'type': 'string'}, 'row_json': {'type': 'string'}}, ['asset_path', 'expected_revision', 'operation', 'row_name'], 'Edit DataTable rows in memory. upsert_row applies row_json fields, remove_row deletes, rename_row renames, and copy_row duplicates. Inspect and save separately.'),
+    'ue_save_data_table': (COMMON_WRITE, ['asset_path', 'expected_revision'], 'Back up and save a DataTable after row edits. Use ue_inspect_data_table revision.'),
+    'ue_copy_animation_curve': ({'source_asset_path': {'type': 'string'}, 'source_curve_name': {'type': 'string'}, 'target_asset_path': {'type': 'string'}, 'target_curve_name': {'type': 'string'}, 'curve_type': {'type': 'string', 'enum': ['float', 'transform']}, 'source_expected_revision': {'type': 'string'}, 'target_expected_revision': {'type': 'string'}, 'expected_target_skeleton_revision': {'type': 'string'}}, ['source_asset_path', 'source_curve_name', 'target_asset_path', 'curve_type', 'source_expected_revision', 'target_expected_revision'], 'Copy a float or transform curve from one AnimSequence to another in memory. target_curve_name defaults to source_curve_name. A new target curve name requires expected_target_skeleton_revision. Save the target animation separately.'),
     'ue_pie_control': ({'operation': {'type': 'string', 'enum': ['start', 'stop', 'status']}}, ['operation'], 'Queue PIE start/stop, or read status. Start may execute gameplay and show editor prompts. Poll status to confirm completion.'),
     'ue_list_actors': ({'name_contains': {'type': 'string'}}, [], 'Read up to 500 actors in the active PIE world. Does not enumerate editor actors.'),
     'ue_list_components': ({'object_path': {'type': 'string'}}, ['object_path'], 'Read components on an Actor in the active PIE world.'),
@@ -451,8 +469,6 @@ def invoke(bridge, name, args):
                 raise ValueError('Duplication needs source_asset and revision, not kind/skeleton_path')
         elif 'kind' not in args or 'expected_revision' in args:
             raise ValueError('Creation requires kind; no source revision applies')
-        elif args['kind'].startswith('blendspace') and not args.get('skeleton_path', '').startswith('/Game/'):
-            raise ValueError('BlendSpace creation requires a /Game/ skeleton_path')
         return verified_write(bridge, 'create_ta_asset', 'inspect_ta_asset', None,
                               'create_ta_asset', args, args)
     if name == 'ue_edit_ta_asset':
@@ -559,6 +575,63 @@ def invoke(bridge, name, args):
         offset, limit = args.get('offset', 0), args.get('limit', 100)
         end = min(offset + limit, len(changes))
         return {'asset': before['asset'], 'before_revision': before['revision'], 'after_revision': after['revision'], 'total': len(changes), 'changes': changes[offset:end], 'next_offset': end if end < len(changes) else None}
+    if name == 'ue_copy_anim_nodes':
+        validate_args(name, args)
+        if not args['source_asset_path'].startswith('/Game/') or not args['source_graph_path'].startswith(args['source_asset_path'] + ':'):
+            raise ValueError('Use an exact source /Game/ asset and graph path')
+        snapshot = bridge.call('inspect_blueprint', asset_path=args['source_asset_path'])
+        if snapshot.get('revision') != args['expected_revision']:
+            raise ValueError('Source Blueprint revision mismatch; inspect it again')
+        result = bridge.call('copy_anim_nodes', **args)
+        while len(bridge.node_clipboards) >= 8:
+            bridge.node_clipboards.pop(next(iter(bridge.node_clipboards)))
+        clipboard_id = uuid.uuid4().hex
+        bridge.node_clipboards[clipboard_id] = {
+            'clipboard': result.pop('clipboard'),
+            'source_skeleton': result.get('source_skeleton'),
+            'node_count': result.get('node_count', 0),
+            'created_at': time.monotonic(),
+        }
+        result['clipboard_id'] = clipboard_id
+        result['expires_in_seconds'] = bridge.timeout
+        return result
+    if name == 'ue_paste_anim_nodes':
+        validate_args(name, args)
+        clipboard = bridge.node_clipboards.get(args['clipboard_id'])
+        if not clipboard:
+            raise ValueError('Clipboard id not found or expired for this MCP session')
+        if time.monotonic() - clipboard['created_at'] > bridge.timeout:
+            del bridge.node_clipboards[args['clipboard_id']]
+            raise ValueError('Clipboard id expired for this MCP session')
+        if not args['asset_path'].startswith('/Game/') or not args['graph_path'].startswith(args['asset_path'] + ':'):
+            raise ValueError('Use an exact target /Game/ asset and graph path')
+        before = bridge.call('inspect_blueprint', asset_path=args['asset_path'])
+        if before.get('revision') != args['expected_revision']:
+            raise ValueError('Target Blueprint revision mismatch; inspect it again')
+        request = dict(args, clipboard=clipboard['clipboard'], source_skeleton=clipboard['source_skeleton'])
+        result = bridge.call('paste_anim_nodes', **request)
+        del bridge.node_clipboards[args['clipboard_id']]
+        after = bridge.call('inspect_blueprint', asset_path=args['asset_path'])
+        result['revision'] = after.get('revision')
+        result['verification'] = {'before_revision': before.get('revision'), 'after_revision': after.get('revision'), 'node_count': clipboard['node_count']}
+        return result
+    if name == 'ue_copy_animation_curve':
+        validate_args(name, args)
+        result = bridge.call('copy_animation_curve', **args)
+        after = bridge.call('inspect_animation_asset', asset_path=args['target_asset_path'])
+        result['revision'] = after.get('revision', result.get('revision'))
+        result['verification'] = {'target_asset': args['target_asset_path'], 'target_revision': result['revision'], 'curve_type': args['curve_type']}
+        return result
+    if name == 'ue_edit_data_table':
+        validate_args(name, args)
+        required = {'upsert_row': ['row_json'], 'rename_row': ['new_row_name'], 'copy_row': ['new_row_name'], 'remove_row': []}[args['operation']]
+        if any(key not in args for key in required):
+            raise ValueError('Operation requires: ' + ', '.join(required))
+        result = bridge.call('edit_data_table', **args)
+        after = bridge.call('inspect_data_table', asset_path=args['asset_path'])
+        result['revision'] = after.get('revision', result.get('revision'))
+        result['verification'] = {'asset': args['asset_path'], 'revision': result['revision'], 'operation': args['operation']}
+        return result
     if name in RUNTIME_SCHEMAS:
         if name == 'ue_edit_skeleton':
             validated = validate_args(name, args)

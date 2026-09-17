@@ -152,17 +152,6 @@ def _operation_check(before, after, operation, args):
         return {'name': 'montage_slot_matches', 'slot': expected_slot,
                 'expected_count': len(segments), 'actual_count': len(actual_segments),
                 'passed': passed}
-    if operation == 'rig_reparent_element':
-        try:
-            config = json.loads(args.get('config_json', '{}'))
-        except (TypeError, ValueError):
-            config = {}
-        name = config.get('name')
-        expected_parent = config.get('parent', '')
-        actual = next((item for item in after.get('items', []) if item.get('name') == name), None)
-        actual_parent = None if actual is None else actual.get('parent', '')
-        return {'name': 'rig_parent_matches', 'expected': expected_parent,
-                'actual': actual_parent, 'passed': actual_parent == expected_parent}
     if operation in ('delete_node', 'delete_state', 'delete_transition', 'delete_state_machine'):
         return {'name': 'node_removed', 'expected': False,
                 'actual': _find_node(after, graph_path, node_id) is not None}

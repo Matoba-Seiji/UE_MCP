@@ -2,12 +2,13 @@
   "skill": "extended-assets",
   "tools": [
     "ue_evaluate_ta_asset", "ue_create_ta_asset", "ue_inspect_ta_asset", "ue_edit_ta_asset",
-    "ue_save_ta_asset", "ue_batch_ta_write"
+    "ue_save_ta_asset", "ue_batch_ta_write", "ue_inspect_data_table", "ue_edit_data_table",
+    "ue_save_data_table", "ue_copy_animation_curve"
   ],
-  "read_only_tools": ["ue_evaluate_ta_asset", "ue_inspect_ta_asset"],
-  "destructive_tools": ["ue_create_ta_asset", "ue_edit_ta_asset", "ue_save_ta_asset", "ue_batch_ta_write"],
-  "idempotent_tools": ["ue_evaluate_ta_asset", "ue_inspect_ta_asset"],
-  "verification": {"ue_create_ta_asset": "postcondition", "ue_edit_ta_asset": "postcondition"},
+  "read_only_tools": ["ue_evaluate_ta_asset", "ue_inspect_ta_asset", "ue_inspect_data_table"],
+  "destructive_tools": ["ue_create_ta_asset", "ue_edit_ta_asset", "ue_save_ta_asset", "ue_batch_ta_write", "ue_edit_data_table", "ue_save_data_table", "ue_copy_animation_curve"],
+  "idempotent_tools": ["ue_evaluate_ta_asset", "ue_inspect_ta_asset", "ue_inspect_data_table"],
+  "verification": {"ue_create_ta_asset": "postcondition", "ue_edit_ta_asset": "postcondition", "ue_edit_data_table": "postcondition", "ue_copy_animation_curve": "postcondition"},
   "timeouts": {"ue_batch_ta_write": 120},
-  "next_tools": {"ue_edit_ta_asset": ["ue_inspect_ta_asset", "ue_save_ta_asset"]}
+  "next_tools": {"ue_edit_ta_asset": ["ue_inspect_ta_asset", "ue_save_ta_asset"], "ue_edit_data_table": ["ue_inspect_data_table", "ue_save_data_table"], "ue_copy_animation_curve": ["ue_inspect_animation_asset", "ue_save_animation_asset"]}
 }

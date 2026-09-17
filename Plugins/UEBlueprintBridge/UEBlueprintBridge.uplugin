@@ -1,12 +1,11 @@
 {
   "FileVersion": 3,
   "Version": 5,
-  "VersionName": "0.5.0",
+  "VersionName": "0.5.0-dfm-lite",
   "FriendlyName": "UE Blueprint Bridge",
-  "Description": "Local Blueprint graph inspection and editing for UE4.24.",
+  "Description": "Local Blueprint, animation, skeleton and runtime inspection for DFM's UE4.24 editor.",
   "Category": "Editor",
   "EnabledByDefault": true,
   "CanContainContent": false,
-  "Modules": [{"Name": "UEBlueprintBridge", "Type": "Editor", "LoadingPhase": "PostEngineInit"}],
-  "Plugins": [{"Name": "ControlRig", "Enabled": true}]
+  "Modules": [{"Name": "UEBlueprintBridge", "Type": "Editor", "LoadingPhase": "PostEngineInit"}]
 }

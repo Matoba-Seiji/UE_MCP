@@ -5,7 +5,6 @@
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "PhysicsEngine/PhysicsConstraintTemplate.h"
 #include "Rendering/SkeletalMeshModel.h"
-#include "ControlRigBlueprint.h"
 #include "LevelSequence.h"
 #include "MovieScene.h"
 #include "Tracks/MovieSceneSkeletalAnimationTrack.h"
@@ -15,15 +14,13 @@
 #include "Channels/MovieSceneFloatChannel.h"
 #include "Channels/MovieSceneChannelProxy.h"
 
-void RebuildBridgeBlendSpace(UBlendSpaceBase* Space);
-
 namespace TAAssetOps
 {
 using namespace AnimationAssetOps;
 inline FObj Error(const FString& Message) { return BlueprintWrite::Error(Message); }
 inline bool SupportedAsset(UObject* A)
 {
-    return Supported(A) || Cast<USkeleton>(A) || Cast<UControlRigBlueprint>(A) || Cast<ULevelSequence>(A);
+    return Supported(A) || Cast<USkeleton>(A) || Cast<ULevelSequence>(A);
 }
 inline FString FullRevision(UObject* Asset)
 {
@@ -210,24 +207,6 @@ inline FObj Inspect(const FObj& Request)
             Items.Add(JV(O));
         }
     }
-    else if (auto* Rig = Cast<UControlRigBlueprint>(A))
-    {
-        const auto Keys = Rig->HierarchyContainer.GetAllItems(); Total = Keys.Num();
-        for (int32 I = 0; I < Total; ++I) if (Page(I))
-        {
-            FObj K = MakeShared<FJsonObject>(); K->SetStringField(TEXT("name"), Keys[I].Name.ToString()); K->SetNumberField(TEXT("type"), static_cast<int32>(Keys[I].Type));
-            FName Parent = NAME_None;
-            if (Keys[I].Type == ERigElementType::Bone && Rig->HierarchyContainer.BoneHierarchy.GetIndex(Keys[I].Name) != INDEX_NONE)
-                Parent = Rig->HierarchyContainer.BoneHierarchy[Keys[I].Name].ParentName;
-            else if (Keys[I].Type == ERigElementType::Space && Rig->HierarchyContainer.SpaceHierarchy.GetIndex(Keys[I].Name) != INDEX_NONE)
-                Parent = Rig->HierarchyContainer.SpaceHierarchy[Keys[I].Name].ParentName;
-            else if (Keys[I].Type == ERigElementType::Control && Rig->HierarchyContainer.ControlHierarchy.GetIndex(Keys[I].Name) != INDEX_NONE)
-                Parent = Rig->HierarchyContainer.ControlHierarchy[Keys[I].Name].ParentName;
-            K->SetStringField(TEXT("parent"), Parent.ToString());
-            K->SetObjectField(TEXT("initial_global"), SkeletonRead::Transform(Rig->HierarchyContainer.GetInitialGlobalTransform(Keys[I]))); Items.Add(JV(K));
-        }
-        R->SetStringField(TEXT("graph_inspection_tool"), TEXT("ue_inspect_blueprint"));
-    }
     else if (auto* Sequence = Cast<ULevelSequence>(A))
     {
         UMovieScene* Scene = Sequence->GetMovieScene(); if (!Scene) return Error(TEXT("MovieScene missing."));
@@ -303,52 +282,7 @@ inline FObj Edit(const FObj& Request, bool Save)
     const FString Op = BlueprintWrite::Str(Request, TEXT("operation"));
     if (FObj Extra = TAProductionOps::Edit(A, Op, C)) return Extra;
     UObject* OtherModified = nullptr;
-    if (Op == TEXT("replace_blendspace"))
-    {
-        auto* B = Cast<UBlendSpaceBase>(A); if (!B || !Fields(C, {TEXT("axes"), TEXT("samples")})) return Error(TEXT("Expected BlendSpace and axes/samples."));
-        const TArray<TSharedPtr<FJsonValue>> *Axes = nullptr, *Samples = nullptr;
-        const int32 Dimensions = Cast<UBlendSpace1D>(B) ? 1 : 2;
-        if (!C->TryGetArrayField(TEXT("axes"), Axes) || Axes->Num() != Dimensions || !C->TryGetArrayField(TEXT("samples"), Samples) || Samples->Num() > 500) return Error(TEXT("Wrong axis count or more than 500 samples."));
-        TArray<FBlendParameter> Parameters;
-        for (const auto& Axis : *Axes)
-        {
-            if (Axis->Type != EJson::Object) return Error(TEXT("Axis must be an object."));
-            FObj O = Axis->AsObject(); double Min = 0, Max = 0, Divisions = 0; FString Name;
-            if (!Fields(O, {TEXT("name"), TEXT("min"), TEXT("max"), TEXT("divisions")}) || !O->TryGetStringField(TEXT("name"), Name) || Name.IsEmpty() ||
-                !Number(O, TEXT("min"), Min, -1e6, 1e6) || !Number(O, TEXT("max"), Max, -1e6, 1e6) || Max <= Min ||
-                !Number(O, TEXT("divisions"), Divisions, 1, 128) || Divisions != FMath::FloorToDouble(Divisions)) return Error(TEXT("Invalid axis name/range/divisions."));
-            FBlendParameter P; P.DisplayName = Name; P.Min = Min; P.Max = Max; P.GridNum = Divisions; Parameters.Add(P);
-        }
-        TArray<UAnimSequence*> Animations; TArray<FVector> Points;
-        for (const auto& Sample : *Samples)
-        {
-            if (Sample->Type != EJson::Object) return Error(TEXT("Sample must be an object."));
-            FObj O = Sample->AsObject(); FVector Point;
-            if (!Fields(O, {TEXT("animation"), TEXT("position")}) || !VectorValue(O, TEXT("position"), Point)) return Error(TEXT("Invalid sample."));
-            FString Path = BlueprintWrite::Str(O, TEXT("animation"));
-            auto* Animation = Path.StartsWith(TEXT("/Game/")) ? LoadObject<UAnimSequence>(nullptr, *Path) : nullptr;
-            if (!Animation || !B->GetSkeleton() || !B->GetSkeleton()->IsCompatible(Animation->GetSkeleton()) || !B->IsValidAdditiveType(Animation->AdditiveAnimType)) return Error(TEXT("Incompatible sample animation."));
-            if (Point.Z != 0 || (Dimensions == 1 && Point.Y != 0)) return Error(TEXT("Inactive axes must be zero."));
-            for (int32 I = 0; I < Dimensions; ++I) if (Point[I] < Parameters[I].Min || Point[I] > Parameters[I].Max) return Error(TEXT("Sample outside axis range."));
-            for (const FVector& Existing : Points) if (Existing.Equals(Point, KINDA_SMALL_NUMBER)) return Error(TEXT("Duplicate sample position."));
-            Animations.Add(Animation); Points.Add(Point);
-        }
-        auto* Property = FindField<UStructProperty>(B->GetClass(), TEXT("BlendParameters"));
-        if (!Property || Property->ArrayDim != 3) return Error(TEXT("UE4.24 BlendParameters layout not found."));
-        // Validate and triangulate on a transient clone before modifying the original.
-        auto* Candidate = DuplicateObject<UBlendSpaceBase>(B, GetTransientPackage()); Candidate->SetFlags(RF_Transient);
-        for (int32 I = 0; I < Dimensions; ++I) *Property->ContainerPtrToValuePtr<FBlendParameter>(Candidate, I) = Parameters[I];
-        for (int32 I = Candidate->GetBlendSamples().Num() - 1; I >= 0; --I) Candidate->DeleteSample(I);
-        for (int32 I = 0; I < Points.Num(); ++I) if (!Candidate->AddSample(Animations[I], Points[I])) return Error(TEXT("Engine rejected a sample; original unchanged."));
-        RebuildBridgeBlendSpace(Candidate);
-        if (Points.Num() && Candidate->GetGridSamples().Num() == 0) return Error(TEXT("Grid generation failed; original unchanged."));
-        const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "BlendSpace", "MCP replace BlendSpace")); B->Modify();
-        for (int32 I = 0; I < Dimensions; ++I) *Property->ContainerPtrToValuePtr<FBlendParameter>(B, I) = Parameters[I];
-        for (int32 I = B->GetBlendSamples().Num() - 1; I >= 0; --I) B->DeleteSample(I);
-        for (int32 I = 0; I < Points.Num(); ++I) B->AddSample(Animations[I], Points[I]);
-        RebuildBridgeBlendSpace(B);
-    }
-    else if (Op == TEXT("replace_montage_slot"))
+    if (Op == TEXT("replace_montage_slot"))
     {
         auto* M = Cast<UAnimMontage>(A); const FString Slot = BlueprintWrite::Str(C, TEXT("slot"));
         const TArray<TSharedPtr<FJsonValue>>* Segments = nullptr;
@@ -569,82 +503,6 @@ inline FObj Edit(const FObj& Request, bool Save)
         auto* Body = Physics->SkeletalBodySetups[BodyIndex]; Physics->Modify(); Body->Modify();
         Body->AggGeom.SphereElems = MoveTemp(Spheres); Body->AggGeom.BoxElems = MoveTemp(Boxes); Body->AggGeom.SphylElems = MoveTemp(Capsules);
         Body->InvalidatePhysicsData(); Body->CreatePhysicsMeshes(); Body->PostEditChange();
-    }
-    else if (Op == TEXT("rig_add_element"))
-    {
-        auto* Rig = Cast<UControlRigBlueprint>(A); FVector Translation, Rotation, Scale;
-        const FString Name = BlueprintWrite::Str(C, TEXT("name"));
-        const FString Kind = BlueprintWrite::Str(C, TEXT("kind"));
-        const FString Parent = BlueprintWrite::Str(C, TEXT("parent"));
-        if (!Rig || !Fields(C, {TEXT("name"), TEXT("kind"), TEXT("parent"), TEXT("translation"), TEXT("rotation_degrees"), TEXT("scale")}) ||
-            !BlueprintAnimWrite::ValidName(Name) || !VectorValue(C, TEXT("translation"), Translation) || !VectorValue(C, TEXT("rotation_degrees"), Rotation) || !VectorValue(C, TEXT("scale"), Scale) ||
-            Scale.X <= 0 || Scale.Y <= 0 || Scale.Z <= 0) return Error(TEXT("Valid element name/kind/parent and positive-scale transform required."));
-        auto& H = Rig->HierarchyContainer;
-        for (const FRigElementKey& Key : H.GetAllItems()) if (Key.Name == *Name) return Error(TEXT("Hierarchy name already exists."));
-        if (Kind == TEXT("bone"))
-        {
-            if (!Parent.IsEmpty() && H.BoneHierarchy.GetIndex(*Parent) == INDEX_NONE) return Error(TEXT("Parent bone not found."));
-        }
-        else if (Kind == TEXT("control"))
-        {
-            if (!Parent.IsEmpty() && H.ControlHierarchy.GetIndex(*Parent) == INDEX_NONE) return Error(TEXT("Parent control not found."));
-        }
-        else if (Kind == TEXT("space"))
-        {
-            if (!Parent.IsEmpty() && H.SpaceHierarchy.GetIndex(*Parent) == INDEX_NONE) return Error(TEXT("Parent space not found."));
-        }
-        else return Error(TEXT("kind must be bone, space or control."));
-        const FTransform Transform(FRotator(Rotation.X, Rotation.Y, Rotation.Z), Translation, Scale);
-        const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "RigElement", "MCP add rig element")); Rig->Modify();
-        if (Kind == TEXT("bone")) H.BoneHierarchy.Add(*Name, *Parent, ERigBoneType::User, Transform);
-        else if (Kind == TEXT("space")) H.SpaceHierarchy.Add(*Name, Parent.IsEmpty() ? ERigSpaceType::Global : ERigSpaceType::Space, *Parent, Transform);
-        else H.ControlHierarchy.Add(*Name, ERigControlType::Transform, *Parent, NAME_None, FRigControlValue::Make<FTransform>(Transform));
-        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Rig);
-    }
-    else if (Op == TEXT("rig_set_initial_transform"))
-    {
-        auto* Rig = Cast<UControlRigBlueprint>(A); double Type = 0; FVector Translation, Rotation, Scale;
-        const FString Name = BlueprintWrite::Str(C, TEXT("name"));
-        if (!Rig || !Fields(C, {TEXT("name"), TEXT("type"), TEXT("translation"), TEXT("rotation_degrees"), TEXT("scale")}) ||
-            !Number(C, TEXT("type"), Type, 0, 255) || Type != FMath::FloorToDouble(Type) ||
-            !VectorValue(C, TEXT("translation"), Translation) || !VectorValue(C, TEXT("rotation_degrees"), Rotation) || !VectorValue(C, TEXT("scale"), Scale)) return Error(TEXT("Hierarchy name/type and transform arrays required."));
-        FRigElementKey Key(*Name, static_cast<ERigElementType>(static_cast<uint8>(Type)));
-        if (Key.Type == ERigElementType::Curve || Rig->HierarchyContainer.GetIndex(Key) == INDEX_NONE || Scale.X <= 0 || Scale.Y <= 0 || Scale.Z <= 0) return Error(TEXT("Transform element not found or invalid scale."));
-        const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "RigTransform", "MCP set rig initial transform")); Rig->Modify();
-        Rig->HierarchyContainer.SetInitialGlobalTransform(Key, FTransform(FRotator(Rotation.X, Rotation.Y, Rotation.Z), Translation, Scale));
-        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Rig);
-    }
-    else if (Op.StartsWith(TEXT("rig_")))
-    {
-        auto* Rig = Cast<UControlRigBlueprint>(A);
-        if (!Rig || !Rig->ModelController) return Error(TEXT("Initialized UE4.24 ControlRigBlueprint required."));
-        const FString Node = BlueprintWrite::Str(C, TEXT("node")); bool Ok = false;
-        const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "Rig", "MCP edit Control Rig"));
-        if (Op == TEXT("rig_add_node"))
-        {
-            double X, Y;
-            if (!Fields(C, {TEXT("node"), TEXT("function"), TEXT("x"), TEXT("y")}) || !Number(C, TEXT("x"), X, -1e6, 1e6) || !Number(C, TEXT("y"), Y, -1e6, 1e6)) return Error(TEXT("node/function/x/y required."));
-            Rig->Modify(); Ok = Rig->ModelController->AddNode(*BlueprintWrite::Str(C, TEXT("function")), FVector2D(X, Y), *Node, true);
-        }
-        else if (Op == TEXT("rig_remove_node"))
-        {
-            if (!Fields(C, {TEXT("node")})) return Error(TEXT("Only node accepted.")); Rig->Modify(); Ok = Rig->ModelController->RemoveNode(*Node, true);
-        }
-        else if (Op == TEXT("rig_set_pin"))
-        {
-            if (!Fields(C, {TEXT("node"), TEXT("pin"), TEXT("value")})) return Error(TEXT("node/pin/value required."));
-            Rig->Modify(); Ok = Rig->ModelController->SetPinDefaultValue(*Node, *BlueprintWrite::Str(C, TEXT("pin")), BlueprintWrite::Str(C, TEXT("value")), true, true);
-        }
-        else if (Op == TEXT("rig_connect") || Op == TEXT("rig_disconnect"))
-        {
-            if (!Fields(C, {TEXT("node"), TEXT("pin"), TEXT("target_node"), TEXT("target_pin")})) return Error(TEXT("node/pin/target_node/target_pin required."));
-            Rig->Modify();
-            if (Op == TEXT("rig_connect")) Ok = Rig->ModelController->MakeLink(*Node, *BlueprintWrite::Str(C, TEXT("pin")), *BlueprintWrite::Str(C, TEXT("target_node")), *BlueprintWrite::Str(C, TEXT("target_pin")), nullptr, true);
-            else Ok = Rig->ModelController->BreakLink(*Node, *BlueprintWrite::Str(C, TEXT("pin")), *BlueprintWrite::Str(C, TEXT("target_node")), *BlueprintWrite::Str(C, TEXT("target_pin")), true);
-        }
-        else return Error(TEXT("Unknown rig operation."));
-        if (!Ok) return Error(TEXT("ControlRig controller rejected operation; inspect before retrying."));
-        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Rig);
     }
     else if (Op == TEXT("sequencer_replace_float_keys"))
     {

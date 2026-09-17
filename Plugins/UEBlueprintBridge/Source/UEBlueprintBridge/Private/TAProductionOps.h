@@ -1,6 +1,4 @@
 #pragma once
-#include "Factories/BlendSpaceFactoryNew.h"
-#include "Factories/BlendSpaceFactory1D.h"
 #include "LODUtilities.h"
 #include "Tracks/MovieScene3DTransformTrack.h"
 #include "Sections/MovieScene3DTransformSection.h"
@@ -82,36 +80,15 @@ inline FObj Create(const FObj& Request)
     }
     else
     {
-        const FString Kind = BlueprintWrite::Str(Request, TEXT("kind")); UFactory* Factory = nullptr; UClass* Class = nullptr;
-        if (Kind == TEXT("blendspace") || Kind == TEXT("blendspace1d"))
-        {
-            const FString SkeletonPath = BlueprintWrite::Str(Request, TEXT("skeleton_path"));
-            auto* Skeleton = SkeletonPath.StartsWith(TEXT("/Game/")) ? LoadObject<USkeleton>(nullptr, *SkeletonPath) : nullptr;
-            if (!Skeleton) return Error(TEXT("Existing /Game/ Skeleton required."));
-            if (Kind == TEXT("blendspace1d")) { auto* F = NewObject<UBlendSpaceFactory1D>(); F->TargetSkeleton = Skeleton; Factory = F; }
-            else { auto* F = NewObject<UBlendSpaceFactoryNew>(); F->TargetSkeleton = Skeleton; Factory = F; }
-            Class = Kind == TEXT("blendspace1d") ? UBlendSpace1D::StaticClass() : UBlendSpace::StaticClass();
-        }
-        else if (Kind == TEXT("level_sequence"))
+        const FString Kind = BlueprintWrite::Str(Request, TEXT("kind"));
+        if (Kind == TEXT("level_sequence"))
         {
             const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "NewSequence", "MCP create LevelSequence"));
             UPackage* Package = CreatePackage(nullptr, *Dest);
             auto* Sequence = NewObject<ULevelSequence>(Package, *FPackageName::GetLongPackageAssetName(Dest), RF_Public | RF_Standalone | RF_Transactional);
             Sequence->Initialize(); FAssetRegistryModule::AssetCreated(Sequence); Created = Sequence;
         }
-        else if (Kind == TEXT("control_rig"))
-        {
-            if (!FModuleManager::Get().LoadModule(TEXT("ControlRigEditor"))) return Error(TEXT("ControlRigEditor unavailable."));
-            UClass* FactoryClass = FindObject<UClass>(nullptr, TEXT("/Script/ControlRigEditor.ControlRigBlueprintFactory"));
-            if (!FactoryClass || !FactoryClass->IsChildOf(UFactory::StaticClass())) return Error(TEXT("ControlRig factory unavailable."));
-            Factory = NewObject<UFactory>(GetTransientPackage(), FactoryClass); Class = UControlRigBlueprint::StaticClass();
-        }
-        else return Error(TEXT("kind must be blendspace, blendspace1d, level_sequence or control_rig."));
-        if (Factory)
-        {
-            const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "NewTA", "MCP create TA asset"));
-            Created = Tools.CreateAsset(FPackageName::GetLongPackageAssetName(Dest), FPackageName::GetLongPackagePath(Dest), Class, Factory);
-        }
+        else return Error(TEXT("DFM lite supports only level_sequence creation; duplicate an existing supported asset for other workflows."));
     }
     if (!Created) return Error(TEXT("Asset creation failed."));
     return Done(Created);
@@ -168,40 +145,6 @@ inline FObj Edit(UObject* A, const FString& Op, const FObj& C)
         }
         const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "NotifyAsset", "MCP set Notify asset")); Sequence->Modify(); Notify->Modify(); Notify->PreEditChange(Property);
         Property->SetObjectPropertyValue_InContainer(Notify, Value); FPropertyChangedEvent Event(Property); Notify->PostEditChangeProperty(Event); return Done(A);
-    }
-    if (Op == TEXT("rig_reparent_element") || Op == TEXT("rig_remove_element"))
-    {
-        auto* Rig = Cast<UControlRigBlueprint>(A); const FString Kind = BlueprintWrite::Str(C, TEXT("kind"));
-        const FName Name(*BlueprintWrite::Str(C, TEXT("name"))), Parent(*BlueprintWrite::Str(C, TEXT("parent")));
-        bool Ack = false;
-        if (!Rig || !Fields(C, {TEXT("kind"), TEXT("name"), TEXT("parent"), TEXT("acknowledge_references")}) || !C->TryGetBoolField(TEXT("acknowledge_references"), Ack) || !Ack) return Error(TEXT("Explicit reference-change acknowledgement required; graph references are not repaired."));
-        ERigElementType Type;
-        if (Kind == TEXT("bone")) Type = ERigElementType::Bone;
-        else if (Kind == TEXT("space")) Type = ERigElementType::Space;
-        else if (Kind == TEXT("control")) Type = ERigElementType::Control;
-        else return Error(TEXT("kind must be bone/space/control."));
-        auto& H = Rig->HierarchyContainer; const FRigElementKey Key(Name, Type); const int32 I = H.GetIndex(Key);
-        if (I == INDEX_NONE) return Error(TEXT("Element not found."));
-        const int32 ParentIndex = Parent.IsNone() ? INDEX_NONE : H.GetIndex(FRigElementKey(Parent, Type));
-        if (Op == TEXT("rig_reparent_element") && (!Parent.IsNone() && (ParentIndex == INDEX_NONE || Parent == Name || H.IsParentedTo(Type, ParentIndex, Type, I)))) return Error(TEXT("Parent missing or would create a cycle."));
-        if (Op == TEXT("rig_remove_element"))
-            for (const FRigElementKey& Other : H.GetAllItems())
-                if (Other != Key && H.IsParentedTo(Other.Type, H.GetIndex(Other), Type, I)) return Error(TEXT("Remove or reparent dependent hierarchy elements first."));
-        const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "RigHierarchy", "MCP edit rig hierarchy")); Rig->Modify(); bool Ok = true;
-        if (Op == TEXT("rig_remove_element"))
-        {
-            if (Type == ERigElementType::Bone) H.BoneHierarchy.Remove(Name);
-            else if (Type == ERigElementType::Space) H.SpaceHierarchy.Remove(Name);
-            else H.ControlHierarchy.Remove(Name);
-        }
-        else
-        {
-            if (Type == ERigElementType::Bone) Ok = H.BoneHierarchy.Reparent(Name, Parent);
-            else if (Type == ERigElementType::Space) Ok = H.SpaceHierarchy.Reparent(Name, Parent.IsNone() ? ERigSpaceType::Global : ERigSpaceType::Space, Parent);
-            else Ok = H.ControlHierarchy.Reparent(Name, Parent);
-        }
-        if (!Ok) return Error(TEXT("Engine rejected hierarchy edit; inspect before retrying."));
-        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Rig); return Done(A);
     }
     if (Op == TEXT("set_notify_scalar"))
     {

@@ -40,9 +40,74 @@ inline UObject* Load(const FObj& R)
     const FString Path = BlueprintWrite::Str(R, TEXT("asset_path"));
     return Path.StartsWith(TEXT("/Game/")) ? LoadObject<UObject>(nullptr, *Path) : nullptr;
 }
+inline UAnimSequence* LoadSequence(const FObj& R, const TCHAR* Key)
+{
+    const FString Path = BlueprintWrite::Str(R, Key);
+    return Path.StartsWith(TEXT("/Game/")) ? Cast<UAnimSequence>(LoadObject<UObject>(nullptr, *Path)) : nullptr;
+}
 inline bool Supported(UObject* A)
 {
     return Cast<UAnimSequence>(A) || Cast<UAnimMontage>(A) || Cast<UBlendSpaceBase>(A) || Cast<USkeletalMesh>(A) || Cast<UPhysicsAsset>(A);
+}
+inline FObj CopyCurve(const FObj& Request)
+{
+    UAnimSequence* Source = LoadSequence(Request, TEXT("source_asset_path"));
+    UAnimSequence* Target = LoadSequence(Request, TEXT("target_asset_path"));
+    if (!Source || !Target) return Error(TEXT("source_asset_path and target_asset_path must reference AnimSequence assets."));
+    if (!GEditor || GEditor->PlayWorld) return Error(TEXT("Stop PIE before copying animation curves."));
+    double Expires = 0;
+    if (!Request->TryGetNumberField(TEXT("expires_unix"), Expires) || Expires < FDateTime::UtcNow().ToUnixTimestamp()) return Error(TEXT("Request expired."));
+    const FString SourceRevision = BlueprintWrite::Str(Request, TEXT("source_expected_revision"));
+    const FString TargetRevision = BlueprintWrite::Str(Request, TEXT("target_expected_revision"));
+    if (SourceRevision.IsEmpty() || SourceRevision != Revision(Source)) return Error(TEXT("Source animation revision mismatch."));
+    if (TargetRevision.IsEmpty() || TargetRevision != Revision(Target)) return Error(TEXT("Target animation revision mismatch."));
+    FString Type = BlueprintWrite::Str(Request, TEXT("curve_type"));
+    if (Type != TEXT("float") && Type != TEXT("transform")) return Error(TEXT("curve_type must be float or transform."));
+    const FString SourceName = BlueprintWrite::Str(Request, TEXT("source_curve_name"));
+    const FString TargetName = BlueprintWrite::Str(Request, TEXT("target_curve_name")).IsEmpty() ? SourceName : BlueprintWrite::Str(Request, TEXT("target_curve_name"));
+    if (SourceName.IsEmpty() || TargetName.IsEmpty()) return Error(TEXT("source_curve_name and target_curve_name must be nonempty."));
+    const FName SourceCurveName(*SourceName), TargetCurveName(*TargetName);
+    if (Type == TEXT("float") && !Source->RawCurveData.FloatCurves.ContainsByPredicate([&](const FFloatCurve& Curve) { return Curve.Name.DisplayName == SourceCurveName; })) return Error(TEXT("Source float curve not found."));
+    if (Type == TEXT("transform") && !Source->RawCurveData.TransformCurves.ContainsByPredicate([&](const FTransformCurve& Curve) { return Curve.Name.DisplayName == SourceCurveName; })) return Error(TEXT("Source transform curve not found."));
+    const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "CopyCurve", "MCP copy animation curve"));
+    USkeleton* Skeleton = Target->GetSkeleton();
+    if (!Skeleton) return Error(TEXT("Target animation has no Skeleton."));
+    const FName Mapping = Type == TEXT("float") ? USkeleton::AnimCurveMappingName : USkeleton::AnimTrackCurveMappingName;
+    FSmartName TargetSmart;
+    bool Registered = Skeleton->GetSmartNameByName(Mapping, TargetCurveName, TargetSmart);
+    if (!Registered)
+    {
+        if (BlueprintWrite::Str(Request, TEXT("expected_target_skeleton_revision")) != Revision(Skeleton)) return Error(TEXT("New target curve name changes Skeleton; supply its expected_target_skeleton_revision."));
+        Skeleton->Modify();
+        if (!Skeleton->AddSmartNameAndModify(Mapping, TargetCurveName, TargetSmart)) return Error(TEXT("Could not register target curve name on Skeleton."));
+        Skeleton->MarkPackageDirty();
+    }
+    bool Changed = false;
+    if (Type == TEXT("float"))
+    {
+        FFloatCurve* SourceCurve = Source->RawCurveData.FloatCurves.FindByPredicate([&](FFloatCurve& Curve) { return Curve.Name.DisplayName == SourceCurveName; });
+        if (!SourceCurve) return Error(TEXT("Source float curve not found."));
+        FFloatCurve* TargetCurve = Target->RawCurveData.FloatCurves.FindByPredicate([&](FFloatCurve& Curve) { return Curve.Name.DisplayName == TargetCurveName; });
+        if (!TargetCurve) TargetCurve = &Target->RawCurveData.FloatCurves.Add_GetRef(FFloatCurve(TargetSmart, SourceCurve->GetCurveTypeFlags()));
+        TargetCurve->CopyCurve(*SourceCurve); Changed = true;
+    }
+    else
+    {
+        FTransformCurve* SourceCurve = Source->RawCurveData.TransformCurves.FindByPredicate([&](FTransformCurve& Curve) { return Curve.Name.DisplayName == SourceCurveName; });
+        if (!SourceCurve) return Error(TEXT("Source transform curve not found."));
+        FTransformCurve* TargetCurve = Target->RawCurveData.TransformCurves.FindByPredicate([&](FTransformCurve& Curve) { return Curve.Name.DisplayName == TargetCurveName; });
+        if (!TargetCurve) TargetCurve = &Target->RawCurveData.TransformCurves.Add_GetRef(FTransformCurve(TargetSmart, SourceCurve->GetCurveTypeFlags()));
+        TargetCurve->CopyCurve(*SourceCurve); Changed = true;
+    }
+    if (!Changed) return Error(TEXT("Curve copy made no change."));
+    Target->Modify(); Target->MarkRawDataAsModified(); Target->PostProcessSequence(); Target->MarkPackageDirty();
+    FObj Result = MakeShared<FJsonObject>(); Result->SetBoolField(TEXT("ok"), true); Result->SetBoolField(TEXT("saved"), false);
+    Result->SetStringField(TEXT("source_asset"), Source->GetPathName()); Result->SetStringField(TEXT("target_asset"), Target->GetPathName());
+    Result->SetStringField(TEXT("curve_name"), TargetName.ToString()); Result->SetStringField(TEXT("curve_type"), Type);
+    Result->SetStringField(TEXT("source_revision"), SourceRevision); Result->SetStringField(TEXT("revision"), Revision(Target));
+    Result->SetBoolField(TEXT("skeleton_modified"), !Registered);
+    if (!Registered) Result->SetStringField(TEXT("also_modified"), Skeleton->GetPathName());
+    return Result;
 }
 inline FObj Inspect(const FObj& Request)
 {

@@ -1,6 +1,6 @@
 # UE 蓝图 MCP
 
-当前正式版本：`0.5.0`
+当前版本：`0.5.0-dfm-lite`
 
 这是一个面向 Unreal Engine 4.24 的本地 MCP 插件，用于通过 MCP 客户端读取和
 编辑蓝图、动画蓝图、骨架以及其他部分工程资产。
@@ -23,6 +23,8 @@
 | `ue_duplicate_blueprint` | 在编辑器内存中复制蓝图，拒绝覆盖已有目标 |
 | `ue_create_blueprint` | 创建普通蓝图或动画蓝图 |
 | `ue_edit_blueprint` | 修改引脚、连线、变量、节点、状态机和动画姿势 |
+| `ue_copy_anim_nodes` | 将 AnimBP 图表节点复制到当前 MCP 会话剪贴板 |
+| `ue_paste_anim_nodes` | 将节点粘贴到另一个兼容 AnimBP 图表 |
 | `ue_compile_blueprint` | 编译蓝图并返回错误和警告，不保存资产 |
 | `ue_save_blueprint` | 编译通过后备份并保存蓝图 |
 | `ue_list_skeletons` | 列出骨架资产 |
@@ -37,15 +39,19 @@
 | `ue_read_animation_track` | 读取动画骨骼的原始位置、旋转和缩放关键帧 |
 | `ue_sample_animation_bone` | 按时间采样动画骨骼和祖先链姿势 |
 | `ue_edit_animation_asset` | 编辑动画轨迹、Root Motion、曲线、Notify 和 Montage 段 |
+| `ue_copy_animation_curve` | 在两个 AnimSequence 之间复制 Float 或 Transform 曲线 |
 | `ue_save_animation_asset` | 备份并保存 Sequence 或 Montage |
 | `ue_read_animation_pose` | 读取 PIE 中 SkeletalMeshComponent 的求值姿势 |
 | `ue_batch_animation_read` | 批量执行只读动画检查 |
-| `ue_inspect_ta_asset` | 读取 BlendSpace、LevelSequence、Control Rig 等扩展资产 |
+| `ue_inspect_ta_asset` | 读取 BlendSpace、LevelSequence、网格、物理等扩展资产 |
 | `ue_create_ta_asset` | 在内存中创建扩展资产或复制已有资产 |
 | `ue_evaluate_ta_asset` | 执行扩展资产的数据或曲线求值 |
-| `ue_edit_ta_asset` | 编辑扩展资产的曲线、Notify、LOD、Physics、Control Rig 和 Sequencer |
+| `ue_edit_ta_asset` | 编辑扩展资产的曲线、Notify、LOD、Physics 和 Sequencer |
 | `ue_save_ta_asset` | 备份并保存扩展资产 |
 | `ue_batch_ta_write` | 批量执行扩展资产的内存编辑 |
+| `ue_inspect_data_table` | 分页读取 DataTable 行结构和行值 |
+| `ue_edit_data_table` | 添加/更新、删除、重命名或复制 DataTable 行 |
+| `ue_save_data_table` | 备份并保存 DataTable |
 
 ## Skill 组织和工具元数据
 
@@ -116,7 +122,7 @@ schema 和统一入口仍保留在 `server/bridge.py`，以便客户端兼容；
 普通 Notify 移动后会排序，旧 index 不可继续复用；Notify State 暂不支持移动。
 采样缺失轨迹使用 Skeleton 参考姿势，不等于最终渲染姿势。
 
-- BlendSpace：替换轴和采样点，在临时副本预检后重建采样网格。
+- BlendSpace：读取轴、采样点和网格；DFM lite 不创建、不替换 BlendSpace。
 - Montage：创建/替换命名 Slot 的组合段，防止截断现有 Section/Notify。
 - 曲线与 Notify：float 曲线创建/替换/删除及切线参数，普通 Notify 和 Notify State 增删移动。
 - Mesh：LOD 数据摘要和屏幕尺寸设置，Morph 稀疏差值分页读取、替换和缩放。
@@ -125,9 +131,45 @@ schema 和统一入口仍保留在 `server/bridge.py`，以便客户端兼容；
 - Sequencer：现有绑定下动画 Section 创建、范围/速率编辑、删除。
 - 批量写入：最多 20 项，遇错即停，不自动保存，不保证原子性。
 
-这些接口增加了 UE4.24 ControlRig 插件依赖。BlendSpace 重建依赖本机引擎
-Persona 私有源码，不能直接当作其他引擎版本的兼容实现。反射嵌套数组仍有
-100 项限制，不是完整无损资产导出。
+DFM lite 移除了 ControlRig、ControlRigDeveloper 和 Persona 私有源码依赖，
+以适配 DFM 的裁剪版 UE4.24 编辑器。Control Rig、BlendSpace 创建和整表替换
+不在此配置中。反射嵌套数组仍有 100 项限制，不是完整无损资产导出。
+
+AnimBP 的 `ue_edit_blueprint` 增加了 `set_class_settings` 操作，可以修改
+`parent_class`、`target_skeleton`、`use_multithreaded_animation_update`、
+`warn_about_blueprint_usage`、`generate_const_class`、`generate_abstract_class`
+和 `deprecate`。父类必须是原生 `/Script/` 下的 `AnimInstance` 子类；修改目标骨架
+后应立即编译并检查图表兼容性。
+
+AnimBP 节点复制使用当前 MCP bridge 会话内的 clipboard id，不使用系统剪贴板。
+复制的节点必须来自动画姿势图或过渡图，源和目标必须使用同一个 Target Skeleton；
+内部节点连线会保留，指向源图表外部变量或对象的引用需要粘贴后重新检查。
+
+## DFM 精简兼容版
+
+DFM 目标工程使用 `D:\df_stable\DFMEditor` 下的定制 UE4.24.2 编辑器，实际工程
+文件为 `D:\df_stable\DFMEditor\DFM\DeltaForce.uproject`。编译时必须使用 DFM
+团队提供的可开发引擎头文件、UBT 和编译工具链；仅有裁剪后的运行时 DLL 不足以
+编译新的 C++ 插件。
+
+构建脚本的 `-Engine` 参数需要传 Unreal 安装根目录：
+
+```powershell
+./scripts/build.ps1 -Engine D:\df_stable\DFMEditor
+```
+
+DFM 本机使用 VS2019 MSVC `14.29.30133` 和 Windows SDK `10.0.19041.0`；构建脚本
+已将这两个版本作为 DFM lite 的默认工具链参数。
+
+构建通过后，在关闭目标编辑器的情况下安装：
+
+```powershell
+./scripts/install.ps1 -Project D:\df_stable\DFMEditor\DFM\DeltaForce.uproject
+```
+
+安装只复制 `UEBlueprintBridge` 编辑器插件；MCP bridge 仍从本仓库的
+`server/bridge.py` 启动。当前安装脚本会在目标工程的 `Saved/UEBlueprintBridge`
+下保留安装备份。
 
 ## 环境要求
 

@@ -12,6 +12,7 @@
 #include "ScopedTransaction.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
+#include "EdGraphUtilities.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
 #include "Editor.h"
@@ -63,6 +64,76 @@ inline UEdGraphPin* Pin(UEdGraphNode* N, const FString& Id)
         if (P && P->PinId.ToString() == Id) return P;
     return nullptr;
 }
+inline UEdGraph* GraphByPath(UBlueprint* BP, const FString& Path)
+{
+    if (!BP) return nullptr;
+    TArray<UEdGraph*> Graphs; BP->GetAllGraphs(Graphs);
+    for (UEdGraph* Graph : Graphs) if (Graph && Graph->GetPathName() == Path) return Graph;
+    return nullptr;
+}
+inline bool IsAnimGraph(UEdGraph* Graph)
+{
+    return Graph && Graph->GetSchema() && (Graph->GetSchema()->IsA(UAnimationGraphSchema::StaticClass()) || Graph->GetSchema()->IsA(UAnimationTransitionSchema::StaticClass()));
+}
+inline FObj CopyAnimNodes(const FObj& Request)
+{
+    const FString SourcePath = Str(Request, TEXT("source_asset_path"));
+    UAnimBlueprint* SourceBP = SourcePath.StartsWith(TEXT("/Game/")) ? Cast<UAnimBlueprint>(LoadObject<UObject>(nullptr, *SourcePath)) : nullptr;
+    UEdGraph* SourceGraph = SourceBP ? GraphByPath(SourceBP, Str(Request, TEXT("source_graph_path"))) : nullptr;
+    if (!SourceBP || !SourceBP->TargetSkeleton || !IsAnimGraph(SourceGraph)) return Error(TEXT("Source must be an Animation Blueprint graph with a target Skeleton."));
+    FObj Wrapper;
+    const FString NodeIdsJson = Str(Request, TEXT("node_ids_json"));
+    if (NodeIdsJson.Len() > 1024 * 1024 || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(FString::Printf(TEXT("{\"ids\":%s}"), *NodeIdsJson)), Wrapper) || !Wrapper.IsValid()) return Error(TEXT("node_ids_json must be a JSON array."));
+    const TArray<TSharedPtr<FJsonValue>>* Ids = nullptr;
+    if (!Wrapper->TryGetArrayField(TEXT("ids"), Ids) || !Ids || Ids->Num() < 1 || Ids->Num() > 500) return Error(TEXT("Select 1..500 node ids."));
+    TSet<UObject*> Selected;
+    for (const auto& Value : *Ids)
+    {
+        FString Id; if (!Value->TryGetString(Id)) return Error(TEXT("node_ids_json must contain strings."));
+        UEdGraphNode* Node = Node(SourceGraph, Id);
+        if (!Node || !Node->CanDuplicateNode()) return Error(TEXT("Source node was not found or cannot be duplicated."));
+        Node->PrepareForCopying(); Selected.Add(Node);
+    }
+    FString Clipboard;
+    FEdGraphUtilities::ExportNodesToText(Selected, Clipboard);
+    if (Clipboard.IsEmpty() || Clipboard.Len() > 8 * 1024 * 1024) return Error(TEXT("Selected nodes could not be serialized or exceed the 8 MiB clipboard limit."));
+    FObj Result = MakeShared<FJsonObject>(); Result->SetBoolField(TEXT("ok"), true); Result->SetStringField(TEXT("clipboard"), Clipboard);
+    Result->SetNumberField(TEXT("node_count"), Selected.Num()); Result->SetStringField(TEXT("source_asset"), SourceBP->GetPathName());
+    Result->SetStringField(TEXT("source_skeleton"), SourceBP->TargetSkeleton->GetPathName()); return Result;
+}
+inline FObj PasteAnimNodes(const FObj& Request)
+{
+    double Expires = 0;
+    if (!Request->TryGetNumberField(TEXT("expires_unix"), Expires) || Expires < FDateTime::UtcNow().ToUnixTimestamp()) return Error(TEXT("Request expired."));
+    const FString TargetPath = Str(Request, TEXT("asset_path"));
+    UAnimBlueprint* TargetBP = TargetPath.StartsWith(TEXT("/Game/")) ? Cast<UAnimBlueprint>(LoadObject<UObject>(nullptr, *TargetPath)) : nullptr;
+    UEdGraph* TargetGraph = TargetBP ? GraphByPath(TargetBP, Str(Request, TEXT("graph_path"))) : nullptr;
+    if (!TargetBP || !TargetBP->TargetSkeleton || !IsAnimGraph(TargetGraph)) return Error(TEXT("Target must be an Animation Blueprint graph with a target Skeleton."));
+    const FString SourceSkeleton = Str(Request, TEXT("source_skeleton"));
+    if (!SourceSkeleton.IsEmpty() && SourceSkeleton != TargetBP->TargetSkeleton->GetPathName()) return Error(TEXT("Source and target Animation Blueprints must use the same target Skeleton."));
+    const FString Clipboard = Str(Request, TEXT("clipboard"));
+    if (Clipboard.IsEmpty() || Clipboard.Len() > 8 * 1024 * 1024 || !FEdGraphUtilities::CanImportNodesFromText(TargetGraph, Clipboard)) return Error(TEXT("Clipboard does not contain nodes compatible with the target animation graph."));
+    const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "PasteAnimNodes", "MCP paste Animation Blueprint nodes"));
+    TargetBP->Modify(); TargetGraph->Modify();
+    TSet<UEdGraphNode*> Pasted;
+    FEdGraphUtilities::ImportNodesFromText(TargetGraph, Clipboard, Pasted);
+    if (Pasted.Num() == 0) return Error(TEXT("No nodes were pasted."));
+    const bool HasX = Request->HasField(TEXT("x")), HasY = Request->HasField(TEXT("y"));
+    if (HasX != HasY) return Error(TEXT("x and y must be supplied together."));
+    double X = 0, Y = 0;
+    if (HasX && (!Request->TryGetNumberField(TEXT("x"), X) || !Request->TryGetNumberField(TEXT("y"), Y) || !FMath::IsFinite(X) || !FMath::IsFinite(Y))) return Error(TEXT("x and y must be finite numbers."));
+    if (HasX)
+    {
+        FVector2D Average(0, 0); for (UEdGraphNode* Node : Pasted) Average += FVector2D(Node->NodePosX, Node->NodePosY);
+        Average /= static_cast<float>(Pasted.Num()); const FVector2D Delta(static_cast<float>(X) - Average.X, static_cast<float>(Y) - Average.Y);
+        for (UEdGraphNode* Node : Pasted) { Node->NodePosX += FMath::RoundToInt(Delta.X); Node->NodePosY += FMath::RoundToInt(Delta.Y); }
+    }
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(TargetBP); TargetGraph->NotifyGraphChanged();
+    FObj Result = MakeShared<FJsonObject>(); Result->SetBoolField(TEXT("ok"), true); Result->SetBoolField(TEXT("saved"), false);
+    Result->SetStringField(TEXT("asset"), TargetBP->GetPathName()); Result->SetStringField(TEXT("graph_path"), TargetGraph->GetPathName());
+    TArray<TSharedPtr<FJsonValue>> Ids; for (UEdGraphNode* Node : Pasted) Ids.Add(MakeShared<FJsonValueString>(Node->NodeGuid.ToString()));
+    Result->SetArrayField(TEXT("node_ids"), Ids); Result->SetNumberField(TEXT("node_count"), Pasted.Num()); return Result;
+}
 inline FObj Run(UBlueprint* BP, const FString& Action, const FObj& Request)
 {
     if (GEditor && GEditor->PlayWorld) return Error(TEXT("Stop PIE before editing Blueprint assets."));
@@ -108,6 +179,44 @@ inline FObj Run(UBlueprint* BP, const FString& Action, const FObj& Request)
         return R;
     }
     const FString Op = Str(Request, TEXT("operation"));
+    if (Op == TEXT("set_class_settings"))
+    {
+        UAnimBlueprint* AnimBP = Cast<UAnimBlueprint>(BP);
+        if (!AnimBP) return Error(TEXT("set_class_settings requires an Animation Blueprint."));
+        FObj Settings;
+        if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Str(Request, TEXT("class_settings_json"))), Settings) || !Settings.IsValid()) return Error(TEXT("class_settings_json must encode a JSON object."));
+        for (const auto& Pair : Settings->Values)
+        {
+            if (Pair.Key != TEXT("parent_class") && Pair.Key != TEXT("target_skeleton") && Pair.Key != TEXT("use_multithreaded_animation_update") &&
+                Pair.Key != TEXT("warn_about_blueprint_usage") && Pair.Key != TEXT("generate_const_class") && Pair.Key != TEXT("generate_abstract_class") && Pair.Key != TEXT("deprecate"))
+                return Error(TEXT("Unknown Animation Blueprint class setting."));
+        }
+        const FScopedTransaction Transaction(NSLOCTEXT("UEBlueprintBridge", "ClassSettings", "MCP edit Animation Blueprint class settings"));
+        AnimBP->Modify();
+        bool Changed = false;
+        if (Settings->HasField(TEXT("parent_class")))
+        {
+            FString Path; if (!Settings->TryGetStringField(TEXT("parent_class"), Path) || !Path.StartsWith(TEXT("/Script/"))) return Error(TEXT("parent_class must be a native /Script/ AnimInstance class."));
+            UClass* Parent = LoadObject<UClass>(nullptr, *Path);
+            if (!Parent || !Parent->IsChildOf(UAnimInstance::StaticClass())) return Error(TEXT("parent_class must derive from AnimInstance."));
+            AnimBP->ParentClass = Parent; Changed = true;
+        }
+        if (Settings->HasField(TEXT("target_skeleton")))
+        {
+            FString Path; if (!Settings->TryGetStringField(TEXT("target_skeleton"), Path) || !Path.StartsWith(TEXT("/Game/"))) return Error(TEXT("target_skeleton must be a /Game/ Skeleton asset."));
+            USkeleton* Skeleton = LoadObject<USkeleton>(nullptr, *Path); if (!Skeleton) return Error(TEXT("target_skeleton was not found."));
+            AnimBP->TargetSkeleton = Skeleton; Changed = true;
+        }
+        bool Value = false;
+        if (Settings->HasField(TEXT("use_multithreaded_animation_update"))) { if (!Settings->TryGetBoolField(TEXT("use_multithreaded_animation_update"), Value)) return Error(TEXT("use_multithreaded_animation_update must be boolean.")); AnimBP->bUseMultiThreadedAnimationUpdate = Value; Changed = true; }
+        if (Settings->HasField(TEXT("warn_about_blueprint_usage"))) { if (!Settings->TryGetBoolField(TEXT("warn_about_blueprint_usage"), Value)) return Error(TEXT("warn_about_blueprint_usage must be boolean.")); AnimBP->bWarnAboutBlueprintUsage = Value; Changed = true; }
+        if (Settings->HasField(TEXT("generate_const_class"))) { if (!Settings->TryGetBoolField(TEXT("generate_const_class"), Value)) return Error(TEXT("generate_const_class must be boolean.")); AnimBP->bGenerateConstClass = Value; Changed = true; }
+        if (Settings->HasField(TEXT("generate_abstract_class"))) { if (!Settings->TryGetBoolField(TEXT("generate_abstract_class"), Value)) return Error(TEXT("generate_abstract_class must be boolean.")); AnimBP->bGenerateAbstractClass = Value; Changed = true; }
+        if (Settings->HasField(TEXT("deprecate"))) { if (!Settings->TryGetBoolField(TEXT("deprecate"), Value)) return Error(TEXT("deprecate must be boolean.")); AnimBP->bDeprecate = Value; Changed = true; }
+        if (!Changed) return Error(TEXT("At least one class setting is required."));
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(AnimBP);
+        FObj R = MakeShared<FJsonObject>(); R->SetBoolField(TEXT("ok"), true); R->SetBoolField(TEXT("saved"), false); return R;
+    }
     if (Op == TEXT("rename_node")) return GraphEdit::Run(BP, Op, Request);
     if (Op == TEXT("set_variable_metadata"))
     {
