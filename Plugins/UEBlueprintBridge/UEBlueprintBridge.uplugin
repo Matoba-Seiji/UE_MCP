@@ -1,9 +1,9 @@
 {
   "FileVersion": 3,
   "Version": 5,
-  "VersionName": "0.5.0-dfm-lite",
+  "VersionName": "0.5.1",
   "FriendlyName": "UE Blueprint Bridge",
-  "Description": "Local Blueprint, animation, skeleton and runtime inspection for DFM's UE4.24 editor.",
+  "Description": "Local Blueprint, animation, skeleton and runtime inspection for Unreal Engine 4.24.",
   "Category": "Editor",
   "EnabledByDefault": true,
   "CanContainContent": false,

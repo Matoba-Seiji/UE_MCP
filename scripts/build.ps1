@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$Engine,
-    # DFM's installed VS2019 toolchain is 14.29.30133.
+    # This workspace uses the installed VS2019 toolchain.
     [string]$CompilerVersion = '14.29.30133',
     [string]$WindowsSdkVersion = '10.0.19041.0'
 )
@@ -36,10 +36,10 @@ public class VerifyEditorTarget : TargetRules
 Set-Content -LiteralPath "$hostProject\Source\VerifyEditor.Target.cs" -Encoding ascii -Value $targetRules
 & "$Engine\Engine\Binaries\DotNET\UnrealBuildTool.exe" VerifyEditor Win64 Development "-Project=$hostProject\Verify.uproject" -NoHotReload -NoUBTMakefiles
 if ($LASTEXITCODE -ne 0) { throw "UE build failed: $LASTEXITCODE" }
-$profileMarker = Join-Path $hostProject 'Plugins\UEBlueprintBridge\Binaries\Win64\dfm-lite-build.json'
+$profileMarker = Join-Path $hostProject 'Plugins\UEBlueprintBridge\Binaries\Win64\core-build.json'
 @{
-    profile = 'dfm-lite'
-    plugin_version = '0.5.0-dfm-lite'
+    profile = 'core'
+    plugin_version = '0.5.1'
     engine_root = (Resolve-Path -LiteralPath $Engine).Path
     built_at_utc = (Get-Date).ToUniversalTime().ToString('o')
 } | ConvertTo-Json | Set-Content -LiteralPath $profileMarker -Encoding ascii

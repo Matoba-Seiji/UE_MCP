@@ -88,7 +88,7 @@ inline FObj Create(const FObj& Request)
             auto* Sequence = NewObject<ULevelSequence>(Package, *FPackageName::GetLongPackageAssetName(Dest), RF_Public | RF_Standalone | RF_Transactional);
             Sequence->Initialize(); FAssetRegistryModule::AssetCreated(Sequence); Created = Sequence;
         }
-        else return Error(TEXT("DFM lite supports only level_sequence creation; duplicate an existing supported asset for other workflows."));
+        else return Error(TEXT("Core profile supports only level_sequence creation; duplicate an existing supported asset for other workflows."));
     }
     if (!Created) return Error(TEXT("Asset creation failed."));
     return Done(Created);

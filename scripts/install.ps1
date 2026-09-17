@@ -8,10 +8,10 @@ $workspace = Split-Path $PSScriptRoot -Parent
 $built = Join-Path $workspace 'build\Verify\Plugins\UEBlueprintBridge\Binaries\Win64'
 $dll = Join-Path $built 'UE4Editor-UEBlueprintBridge.dll'
 if (!(Test-Path -LiteralPath $dll)) { throw 'Build the plugin first.' }
-$profileMarker = Join-Path $built 'dfm-lite-build.json'
-if (!(Test-Path -LiteralPath $profileMarker)) { throw 'Build the DFM lite plugin first; stale binaries are not accepted.' }
+$profileMarker = Join-Path $built 'core-build.json'
+if (!(Test-Path -LiteralPath $profileMarker)) { throw 'Build the current core plugin first; stale binaries are not accepted.' }
 $profile = Get-Content -LiteralPath $profileMarker -Raw | ConvertFrom-Json
-if ($profile.profile -ne 'dfm-lite' -or $profile.plugin_version -ne '0.5.0-dfm-lite') { throw 'The staged plugin is not a DFM lite build.' }
+if ($profile.profile -ne 'core' -or $profile.plugin_version -ne '0.5.1') { throw 'The staged plugin is not a current core build.' }
 $projectDir = Split-Path (Resolve-Path -LiteralPath $Project).Path -Parent
 $destination = Join-Path $projectDir 'Plugins\UEBlueprintBridge'
 $binaryDir = Join-Path $destination 'Binaries\Win64'
@@ -30,7 +30,7 @@ $manifest = Get-Content -LiteralPath (Join-Path $built 'UE4Editor.modules') -Raw
 $manifest.Modules.UEBlueprintBridge = $dllName
 Copy-Item -LiteralPath "$workspace\Plugins\UEBlueprintBridge\Source" -Destination $destination -Recurse -Force
 Copy-Item -LiteralPath "$workspace\Plugins\UEBlueprintBridge\UEBlueprintBridge.uplugin" -Destination $destination -Force
-# Remove source files retired by the DFM lite profile when upgrading an older install.
+# Remove source files retired by the current core profile when upgrading an older install.
 $obsoleteSource = Join-Path $destination 'Source\UEBlueprintBridge\Private\BlendSpaceRebuild.cpp'
 if (Test-Path -LiteralPath $obsoleteSource) { Remove-Item -LiteralPath $obsoleteSource -Force }
 $tempManifest = Join-Path $binaryDir 'UE4Editor.modules.tmp'

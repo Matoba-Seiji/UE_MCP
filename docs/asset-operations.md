@@ -9,7 +9,7 @@
 revision 相互独立，包含所属对象序列化内容，是当前会话的校验值，不是可跨会话
 复用的哈希。
 
-DFM lite 配置只使用目标编辑器中可用的通用动画、骨架、物理和 Sequencer 接口。
+Core profile 只使用目标编辑器中可用的通用动画、骨架、物理和 Sequencer 接口。
 BlendSpace 保留读取、求值和 AnimBP 播放节点支持，但不创建或替换 BlendSpace；
 Control Rig 和依赖 Persona 私有源码的操作不在此配置中。不会修改引擎文件。
 
@@ -71,7 +71,7 @@ can also invalidate later revisions and cause a safe stop.
 坐标轴、采样点和网格数量；Sequence 支持 `notifies` 和 `curves`；Montage 额外
 支持 `sections` 和 `slots`；Mesh 支持 `lods` 和 `morph_deltas`（需要 `name,lod`）；
 Physics 支持 `bodies` 和 `constraints`。LevelSequence 返回绑定和动画段范围。
-Skeleton 返回 revision。Control Rig 不属于 DFM lite 支持范围。
+Skeleton 返回 revision。Control Rig 不属于 Core profile 支持范围。
 反射嵌套数组仍有 100 项限制，Morph 差值可以单独分页。这些结果不是完整无损的
 整资产导出。
 
@@ -79,7 +79,7 @@ Skeleton 返回 revision。Control Rig 不属于 DFM lite 支持范围。
 
 ### 生产工作流扩展
 
-在 DFM lite 配置中，`ue_create_ta_asset` 只能在未使用的目标包路径创建
+在 Core profile 中，`ue_create_ta_asset` 只能在未使用的目标包路径创建
 `level_sequence`，也可以通过 `source_asset` 和 `expected_revision` 复制已有支持资产。
 创建不会自动保存。BlendSpace 只能读取或作为已有资产复制，不能通过 MCP 创建或替换。
 `ue_evaluate_ta_asset` 提供 editor_actors、blend_weights、float_curve 和

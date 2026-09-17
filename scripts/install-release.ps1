@@ -31,7 +31,7 @@ foreach ($required in @($manifestPath, $binaryPath, $modulesPath)) {
     Resolve-ExistingPath $required 'Release plugin file' | Out-Null
 }
 $releaseManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($releaseManifest.VersionName -ne '0.5.0-dfm-lite') { throw 'Release package is not a DFM lite build.' }
+if ($releaseManifest.VersionName -ne '0.5.1') { throw 'Release package is not a current core build.' }
 $packageManifestPath = Join-Path $packagePath 'package-manifest.json'
 if (Test-Path -LiteralPath $packageManifestPath) {
     $packageManifest = Get-Content -LiteralPath $packageManifestPath -Raw | ConvertFrom-Json
@@ -70,7 +70,7 @@ Move-Item -LiteralPath $tempManifest -Destination (Join-Path $binaryDir 'UE4Edit
 Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $destination 'UEBlueprintBridge.uplugin') -Force
 Copy-Item -LiteralPath (Join-Path $pluginSource 'Config') -Destination $destination -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item -LiteralPath (Join-Path $pluginSource 'Source') -Destination $destination -Recurse -Force -ErrorAction SilentlyContinue
-# Remove source files retired by the DFM lite profile when upgrading an older install.
+# Remove source files retired by the current core profile when upgrading an older install.
 $obsoleteSource = Join-Path $destination 'Source\UEBlueprintBridge\Private\BlendSpaceRebuild.cpp'
 if (Test-Path -LiteralPath $obsoleteSource) { Remove-Item -LiteralPath $obsoleteSource -Force }
 

@@ -6,12 +6,13 @@ param(
     [string]$EngineVersion = '4.24',
     [string]$Platform = 'Win64',
     [string]$Remote = 'origin',
-    [string]$Branch = 'main'
+    [string]$Branch = 'main',
+    [string]$OutputRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $workspace = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-& (Join-Path $PSScriptRoot 'package-release.ps1') -BuiltPlugin $BuiltPlugin -EngineVersion $EngineVersion -Platform $Platform
+& (Join-Path $PSScriptRoot 'package-release.ps1') -BuiltPlugin $BuiltPlugin -OutputRoot $OutputRoot -EngineVersion $EngineVersion -Platform $Platform
 if ($LASTEXITCODE -ne 0) { throw "Package step failed: $LASTEXITCODE" }
 
 Push-Location $workspace

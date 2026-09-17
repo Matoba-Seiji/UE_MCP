@@ -3,15 +3,15 @@
 ## Release process - 2026-09-17
 
 - Added checked-in prebuilt package workflow under `releases/`.
-- Added `scripts/package-release.ps1` with DFM lite version and DLL hash validation.
+- Added `scripts/package-release.ps1` with core version and DLL hash validation.
 - Added `scripts/publish.ps1` to package, commit, and push source plus the built plugin together.
 
-## 0.5.0-dfm-lite - 2026-09-16
+## 0.5.1 - 2026-09-17
 
 - 移除 ControlRig、ControlRigDeveloper 和 Persona 私有源码依赖。
 - 保留蓝图、动画、骨架、运行时、Sequencer、网格和物理相关接口。
 - 将 BlendSpace 限制为读取、求值和 AnimBP 播放；禁用创建和整表替换。
-- MCP schema 不再广告 Control Rig、Rig 编辑和 Persona 专用操作。
+- Core profile keeps the plugin package independent of project-specific integrations.
 - 增加 DataTable 行级读取、更新、删除、重命名、复制和保存。
 - 增加 AnimSequence Float/Transform 曲线跨资产复制。
 - 增加兼容 AnimBP 图表之间的节点会话剪贴板复制粘贴。

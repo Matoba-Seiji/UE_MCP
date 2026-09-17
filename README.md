@@ -1,6 +1,6 @@
 # UE 蓝图 MCP
 
-当前版本：`0.5.0-dfm-lite`
+当前版本：`0.5.1`
 
 这是一个面向 Unreal Engine 4.24 的本地 MCP 插件，用于通过 MCP 客户端读取和
 编辑蓝图、动画蓝图、骨架以及其他部分工程资产。
@@ -122,7 +122,7 @@ schema 和统一入口仍保留在 `server/bridge.py`，以便客户端兼容；
 普通 Notify 移动后会排序，旧 index 不可继续复用；Notify State 暂不支持移动。
 采样缺失轨迹使用 Skeleton 参考姿势，不等于最终渲染姿势。
 
-- BlendSpace：读取轴、采样点和网格；DFM lite 不创建、不替换 BlendSpace。
+- BlendSpace：读取轴、采样点和网格；Core profile 不创建、不替换 BlendSpace。
 - Montage：创建/替换命名 Slot 的组合段，防止截断现有 Section/Notify。
 - 曲线与 Notify：float 曲线创建/替换/删除及切线参数，普通 Notify 和 Notify State 增删移动。
 - Mesh：LOD 数据摘要和屏幕尺寸设置，Morph 稀疏差值分页读取、替换和缩放。
@@ -131,9 +131,9 @@ schema 和统一入口仍保留在 `server/bridge.py`，以便客户端兼容；
 - Sequencer：现有绑定下动画 Section 创建、范围/速率编辑、删除。
 - 批量写入：最多 20 项，遇错即停，不自动保存，不保证原子性。
 
-DFM lite 移除了 ControlRig、ControlRigDeveloper 和 Persona 私有源码依赖，
-以适配 DFM 的裁剪版 UE4.24 编辑器。Control Rig、BlendSpace 创建和整表替换
-不在此配置中。反射嵌套数组仍有 100 项限制，不是完整无损资产导出。
+Core profile 移除了 ControlRig、ControlRigDeveloper 和 Persona 私有源码依赖，
+以保持插件对常见 Unreal Engine 4.24 编辑器环境的独立性。Control Rig、BlendSpace
+创建和整表替换不在此配置中。反射嵌套数组仍有 100 项限制，不是完整无损资产导出。
 
 AnimBP 的 `ue_edit_blueprint` 增加了 `set_class_settings` 操作，可以修改
 `parent_class`、`target_skeleton`、`use_multithreaded_animation_update`、
@@ -145,33 +145,10 @@ AnimBP 节点复制使用当前 MCP bridge 会话内的 clipboard id，不使用
 复制的节点必须来自动画姿势图或过渡图，源和目标必须使用同一个 Target Skeleton；
 内部节点连线会保留，指向源图表外部变量或对象的引用需要粘贴后重新检查。
 
-## DFM 精简兼容版
+## 上传构建产物
 
-DFM 目标工程使用 `D:\df_stable\DFMEditor` 下的定制 UE4.24.2 编辑器，实际工程
-文件为 `D:\df_stable\DFMEditor\DFM\DeltaForce.uproject`。编译时必须使用 DFM
-团队提供的可开发引擎头文件、UBT 和编译工具链；仅有裁剪后的运行时 DLL 不足以
-编译新的 C++ 插件。
-
-构建脚本的 `-Engine` 参数需要传 Unreal 安装根目录：
-
-```powershell
-./scripts/build.ps1 -Engine D:\df_stable\DFMEditor
-```
-
-DFM 本机使用 VS2019 MSVC `14.29.30133` 和 Windows SDK `10.0.19041.0`；构建脚本
-已将这两个版本作为 DFM lite 的默认工具链参数。
-
-构建通过后，在关闭目标编辑器的情况下安装：
-
-```powershell
-./scripts/install.ps1 -Project D:\df_stable\DFMEditor\DFM\DeltaForce.uproject
-```
-
-### 上传构建产物
-
-每次向 GitHub 上传前，应先将本次构建的插件打包到 `releases/`。打包脚本会验证
-插件版本必须是 `0.5.0-dfm-lite`，并记录 DLL 的 SHA-256；旧的 `0.1.0` 只读 DLL
-会被拒绝：
+每次向 GitHub 上传前，应先将本次构建的通用插件打包到 `releases/`。打包脚本会验证
+插件版本必须是 `0.5.1`，并记录 DLL 的 SHA-256；旧的 `0.1.0` 只读 DLL 会被拒绝：
 
 ```powershell
 ./scripts/package-release.ps1 `
@@ -183,11 +160,11 @@ DFM 本机使用 VS2019 MSVC `14.29.30133` 和 Windows SDK `10.0.19041.0`；构�
 ```powershell
 ./scripts/publish.ps1 `
   -BuiltPlugin ./build/Verify/Plugins/UEBlueprintBridge `
-  -Message "release: publish DFM lite plugin build"
+  -Message "release: publish core plugin build"
 ```
 
-最终提交会包含 `releases/UEBlueprintBridge-...` 下的 `uplugin`、源码、配置、Editor
-DLL、modules 清单和 `package-manifest.json`。`build/` 仍然只是临时构建目录，不会
+最终提交会包含 `releases/UEBlueprintBridge-...` 下的基础插件文件、Editor DLL、
+modules 清单和 `package-manifest.json`，不包含任何项目工程文件。`build/` 仍然只是临时构建目录，不会
 把中间文件和旧缓存一并上传。`install-release.ps1` 安装时也会校验包清单中的 DLL
 哈希。
 

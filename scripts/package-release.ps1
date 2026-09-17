@@ -24,8 +24,8 @@ foreach ($required in @($manifestPath, $dllPath, $modulesPath)) {
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.VersionName -ne '0.5.0-dfm-lite') {
-    throw "Expected DFM lite VersionName 0.5.0-dfm-lite, found $($manifest.VersionName). Refusing to package stale or incompatible binaries."
+if ($manifest.VersionName -ne '0.5.1') {
+    throw "Expected core VersionName 0.5.1, found $($manifest.VersionName). Refusing to package stale or incompatible binaries."
 }
 if ($manifest.EngineVersion -and $manifest.EngineVersion -notlike "$EngineVersion*") {
     throw "Built plugin targets EngineVersion $($manifest.EngineVersion), expected $EngineVersion."
@@ -68,10 +68,9 @@ $metadata = [ordered]@{
     platform = $Platform
     dll = 'Plugins/UEBlueprintBridge/Binaries/Win64/UE4Editor-UEBlueprintBridge.dll'
     dll_sha256 = $hash
-    source_plugin = $pluginPath
     packaged_at_utc = (Get-Date).ToUniversalTime().ToString('o')
 }
 $metadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $packageRoot 'package-manifest.json') -Encoding ascii
 
-Write-Output "Packaged DFM lite plugin: $packageRoot"
+Write-Output "Packaged core plugin: $packageRoot"
 Write-Output "DLL SHA-256: $hash"

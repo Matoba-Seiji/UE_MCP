@@ -9,7 +9,7 @@ metadata:
 
 # Extended Asset Skill
 
-DFM lite supports BlendSpace inspection/evaluation, Sequencer, mesh, physics,
+Core profile supports BlendSpace inspection/evaluation, Sequencer, mesh, physics,
 DataTable row editing, and animation curve copy operations using asset-specific
 revisions. Control Rig and Persona-private BlendSpace rebuild operations are
 unavailable. Batch writes remain sequential and are not atomic.

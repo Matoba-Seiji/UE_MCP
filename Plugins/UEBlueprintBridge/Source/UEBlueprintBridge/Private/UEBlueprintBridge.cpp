@@ -193,8 +193,8 @@ class FUEBlueprintBridge : public IModuleInterface
             R->SetStringField(TEXT("engine"), FEngineVersion::Current().ToString());
             R->SetStringField(TEXT("project"), FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()));
             R->SetBoolField(TEXT("read_only"), false);
-            R->SetStringField(TEXT("plugin_version"), TEXT("0.5.0-dfm-lite"));
-            R->SetStringField(TEXT("profile"), TEXT("dfm-lite"));
+            R->SetStringField(TEXT("plugin_version"), TEXT("0.5.1"));
+            R->SetStringField(TEXT("profile"), TEXT("core"));
         }
         else if (Action == TEXT("pie_control") || Action == TEXT("list_actors") || Action == TEXT("list_components") || Action == TEXT("read_runtime_property"))
         {
