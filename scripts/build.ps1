@@ -1,8 +1,8 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$Engine,
-    # This workspace uses the installed VS2019 toolchain.
-    [string]$CompilerVersion = '14.29.30133',
+    # The installed VS2019 directory is 14.29.30133; cl.exe ProductVersion is 14.29.30154.
+    [string]$CompilerVersion = '14.29.30154',
     [string]$WindowsSdkVersion = '10.0.19041.0'
 )
 $ErrorActionPreference = 'Stop'

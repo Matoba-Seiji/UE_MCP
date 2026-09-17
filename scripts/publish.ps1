@@ -12,8 +12,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $workspace = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-& (Join-Path $PSScriptRoot 'package-release.ps1') -BuiltPlugin $BuiltPlugin -OutputRoot $OutputRoot -EngineVersion $EngineVersion -Platform $Platform
-if ($LASTEXITCODE -ne 0) { throw "Package step failed: $LASTEXITCODE" }
+$packageScript = Join-Path $PSScriptRoot 'package-release.ps1'
+& $packageScript -BuiltPlugin $BuiltPlugin -OutputRoot $OutputRoot -EngineVersion $EngineVersion -Platform $Platform
+if (!$?) { throw 'Package step failed.' }
 
 Push-Location $workspace
 try {

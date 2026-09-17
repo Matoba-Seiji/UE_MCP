@@ -5,6 +5,7 @@
 - Added checked-in prebuilt package workflow under `releases/`.
 - Added `scripts/package-release.ps1` with core version and DLL hash validation.
 - Added `scripts/publish.ps1` to package, commit, and push source plus the built plugin together.
+- Release packages exclude PDB debug symbols and intermediate build artifacts.
 
 ## 0.5.1 - 2026-09-17
 

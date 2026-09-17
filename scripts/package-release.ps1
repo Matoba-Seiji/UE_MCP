@@ -58,7 +58,13 @@ foreach ($folder in @('Config', 'Source')) {
         Copy-Item -LiteralPath $sourceFolder -Destination $pluginDestination -Recurse -Force
     }
 }
-Copy-Item -LiteralPath $binaryDir -Destination $pluginDestination -Recurse -Force
+$packageBinaryDir = Join-Path $pluginDestination 'Binaries\Win64'
+New-Item -ItemType Directory -Path $packageBinaryDir -Force | Out-Null
+# Publish only runtime plugin files. PDBs and intermediate artifacts stay local.
+Copy-Item -LiteralPath $dllPath -Destination $packageBinaryDir -Force
+$packagedModulesPath = Join-Path $packageBinaryDir 'UE4Editor.modules'
+$normalizedModules = (Get-Content -LiteralPath $modulesPath) | ForEach-Object { $_.TrimEnd() }
+Set-Content -LiteralPath $packagedModulesPath -Value $normalizedModules -Encoding ascii
 
 $hash = (Get-FileHash -LiteralPath (Join-Path $pluginDestination 'Binaries\Win64\UE4Editor-UEBlueprintBridge.dll') -Algorithm SHA256).Hash
 $metadata = [ordered]@{
@@ -68,6 +74,7 @@ $metadata = [ordered]@{
     platform = $Platform
     dll = 'Plugins/UEBlueprintBridge/Binaries/Win64/UE4Editor-UEBlueprintBridge.dll'
     dll_sha256 = $hash
+    includes_debug_symbols = $false
     packaged_at_utc = (Get-Date).ToUniversalTime().ToString('o')
 }
 $metadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $packageRoot 'package-manifest.json') -Encoding ascii

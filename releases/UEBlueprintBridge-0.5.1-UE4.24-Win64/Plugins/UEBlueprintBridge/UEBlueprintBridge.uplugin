@@ -1,0 +1,11 @@
+{
+  "FileVersion": 3,
+  "Version": 5,
+  "VersionName": "0.5.1",
+  "FriendlyName": "UE Blueprint Bridge",
+  "Description": "Local Blueprint, animation, skeleton and runtime inspection for Unreal Engine 4.24.",
+  "Category": "Editor",
+  "EnabledByDefault": true,
+  "CanContainContent": false,
+  "Modules": [{"Name": "UEBlueprintBridge", "Type": "Editor", "LoadingPhase": "PostEngineInit"}]
+}
